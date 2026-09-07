@@ -556,7 +556,7 @@ async function deleteClass(id){
   render();
 }
 
-/* ---------------- Video Lessons ---------------- */
+/* ---------------- Video Lessons: Class -> Subjects -> Lessons -> Video ---------------- */
 function ytEmbedUrl(url){
   if(!url) return null;
   let id = null;
@@ -566,41 +566,155 @@ function ytEmbedUrl(url){
   return "https://www.youtube.com/embed/" + id;
 }
 
+function lessonsState(){
+  if(!window.__lessons) window.__lessons = { classId:null, subjectId:null, lessonId:null };
+  return window.__lessons;
+}
+
 async function renderLessons(){
-  if(PROFILE.role==="student"){
-    const { data: list } = await sb.from("lessons").select("*").eq("class_id", PROFILE.class_id).order("created_at",{ascending:false});
-    const { data: views } = await sb.from("lesson_views").select("lesson_id").eq("student_id", PROFILE.id);
-    const watchedSet = new Set((views||[]).map(v=>v.lesson_id));
+  const st = lessonsState();
+  const staff = PROFILE.role !== "student";
+
+  let classes;
+  if(staff){ classes = await myClasses(); }
+  else { const { data } = await sb.from("classes").select("id,name").eq("id", PROFILE.class_id); classes = data || []; }
+  window.__classesCache = classes;
+
+  if(!classes.length) return `<div class="empty"><span class="serif">No classes yet</span></div>`;
+  if(!st.classId || !classes.some(c=>c.id===st.classId)) st.classId = classes[0].id;
+
+  // ----- Video detail view -----
+  if(st.lessonId){
+    const { data: lesson } = await sb.from("lessons").select("*").eq("id", st.lessonId).maybeSingle();
+    if(!lesson) { st.lessonId = null; return renderLessons(); }
+    const embed = ytEmbedUrl(lesson.youtube_url);
+    let watched = false;
+    if(!staff){
+      const { data: v } = await sb.from("lesson_views").select("id").eq("lesson_id", lesson.id).eq("student_id", PROFILE.id).maybeSingle();
+      watched = !!v;
+    }
     return `
-      <div class="section-head"><h2>Lessons</h2><span class="count">${(list||[]).length} total</span></div>
-      ${(list||[]).length ? list.map(l=>lessonCardHtml(l, false, watchedSet.has(l.id))).join("") : `<div class="empty"><span class="serif">No lessons posted yet</span></div>`}
+      <button class="btn btn-sm" onclick="lessonsState().lessonId=null; render();" style="margin-bottom:16px;">← Back to lessons</button>
+      <div class="panel lesson-card">
+        <h3>${esc(lesson.title)}</h3>
+        ${embed ? `<div class="video-wrap"><iframe src="${embed}" allowfullscreen></iframe></div>` : `<div class="empty">Couldn't read this YouTube link.</div>`}
+        ${lesson.description ? `<p style="margin-top:14px; font-size:14px; line-height:1.7; color:var(--text);">${esc(lesson.description)}</p>` : ""}
+        ${staff ? `
+          <div style="margin-top:16px; display:flex; gap:8px;">
+            <button class="btn btn-sm" onclick="viewLessonViews('${lesson.id}','${esc(lesson.title)}','${st.classId}')">Views</button>
+            <button class="btn btn-sm btn-danger" onclick="deleteLesson('${lesson.id}')">Delete</button>
+          </div>
+        ` : `
+          <div style="margin-top:16px;">${watched ? `<span class="pill" style="background:var(--green-bg); color:var(--green);">✓ Watched</span>` : `<button class="btn btn-sm btn-gold" onclick="markWatched('${lesson.id}')">Mark as watched</button>`}</div>
+        `}
+      </div>
     `;
   }
-  const classes = await myClasses();
-  window.__classesCache = classes;
-  const classIds = classes.map(c=>c.id);
-  const safeIds = classIds.length ? classIds : ["00000000-0000-0000-0000-000000000000"];
-  const { data: list } = await sb.from("lessons").select("*, class:classes(name)").in("class_id", safeIds).order("created_at",{ascending:false});
+
+  const classSelectHtml = classes.length > 1 ? `
+    <div class="form-row" style="margin-bottom:20px; max-width:280px;">
+      <div><label class="field-label">Class</label>
+        <select class="text-input" id="lessons-class-select">${classes.map(c=>`<option value="${c.id}" ${c.id===st.classId?'selected':''}>${esc(c.name)}</option>`).join("")}</select>
+      </div>
+    </div>` : "";
+
+  // ----- Lessons list within a subject -----
+  if(st.subjectId){
+    const { data: subject } = await sb.from("subjects").select("*").eq("id", st.subjectId).maybeSingle();
+    if(!subject){ st.subjectId = null; return renderLessons(); }
+    const { data: lessons } = await sb.from("lessons").select("*").eq("subject_id", st.subjectId).order("created_at");
+    let watchedSet = new Set();
+    if(!staff){
+      const { data: views } = await sb.from("lesson_views").select("lesson_id").eq("student_id", PROFILE.id);
+      watchedSet = new Set((views||[]).map(v=>v.lesson_id));
+    }
+    return `
+      <button class="btn btn-sm" onclick="lessonsState().subjectId=null; render();" style="margin-bottom:16px;">← Back to subjects</button>
+      <div class="section-head">
+        <h2>${esc(subject.name)}</h2>
+        ${staff ? `<button class="btn btn-gold" onclick="showLessonForm('${st.subjectId}')">+ Add lesson</button>` : `<span class="count">${(lessons||[]).length} lessons</span>`}
+      </div>
+      ${(lessons||[]).length ? `
+      <table><tr><th>Lesson</th>${!staff ? '<th>Status</th>' : '<th></th>'}</tr>
+      ${lessons.map(l=>`<tr>
+        <td><a href="#" onclick="lessonsState().lessonId='${l.id}'; render(); return false;" style="color:var(--ink); font-weight:500; text-decoration:underline;">${esc(l.title)}</a></td>
+        <td style="text-align:right;">${staff ? `<button class="btn btn-sm btn-danger" onclick="deleteLesson('${l.id}')">Delete</button>` : (watchedSet.has(l.id) ? `<span class="pill" style="background:var(--green-bg); color:var(--green);">Watched</span>` : `<span class="pill pill-amber">Not yet</span>`)}</td>
+      </tr>`).join("")}
+      </table>` : `<div class="empty"><span class="serif">No lessons in this subject yet</span></div>`}
+    `;
+  }
+
+  // ----- Subjects list -----
+  const { data: subjects } = await sb.from("subjects").select("*").eq("class_id", st.classId).order("name");
+  const subjectIds = (subjects||[]).map(s=>s.id);
+  const { data: counts } = subjectIds.length ? await sb.from("lessons").select("subject_id").in("subject_id", subjectIds) : { data: [] };
+  const countMap = {}; (counts||[]).forEach(l=>countMap[l.subject_id]=(countMap[l.subject_id]||0)+1);
+
   return `
     <div class="section-head">
       <h2>Lessons</h2>
-      ${classes.length ? `<button class="btn btn-gold" onclick="showLessonForm()">+ Add video lesson</button>` : ``}
+      ${staff ? `<button class="btn btn-gold" onclick="showSubjectForm()">+ New subject</button>` : ``}
     </div>
-    ${(list||[]).length ? list.map(l=>lessonCardHtml(l, true)).join("") : `<div class="empty"><span class="serif">No lessons yet</span>Paste a YouTube link to add your first one.</div>`}
+    ${classSelectHtml}
+    ${(subjects||[]).length ? `
+    <table><tr><th>Subject</th><th>Lessons</th><th></th></tr>
+    ${subjects.map(s=>`<tr>
+      <td><a href="#" onclick="lessonsState().subjectId='${s.id}'; render(); return false;" style="color:var(--ink); font-weight:500; text-decoration:underline;">${esc(s.name)}</a></td>
+      <td>${countMap[s.id]||0}</td>
+      <td style="text-align:right;">${staff ? `<button class="btn btn-sm btn-danger" onclick="deleteSubject('${s.id}')">Delete</button>` : ""}</td>
+    </tr>`).join("")}
+    </table>` : `<div class="empty"><span class="serif">No subjects yet</span>${staff ? "Create a subject to start adding lessons." : ""}</div>`}
   `;
 }
-function lessonCardHtml(l, staff, watched){
-  const embed = ytEmbedUrl(l.youtube_url);
-  return `
-    <div class="panel lesson-card">
-      <div style="display:flex; justify-content:space-between; align-items:baseline;">
-        <h3>${esc(l.title)}${l.class?.name ? ` <span style="font-size:12px; color:var(--text-muted); font-weight:400;">(${esc(l.class.name)})</span>` : ""}</h3>
-        ${staff ? `<button class="btn btn-sm" onclick="viewLessonViews('${l.id}','${esc(l.title)}','${l.class_id}')">Views</button> <button class="btn btn-sm btn-danger" onclick="deleteLesson('${l.id}')">Delete</button>` : ""}
-      </div>
-      ${embed ? `<div class="video-wrap"><iframe src="${embed}" allowfullscreen></iframe></div>` : `<div class="empty">Couldn't read this YouTube link.</div>`}
-      ${!staff ? `<div style="margin-top:12px;">${watched ? `<span class="pill" style="background:var(--green-bg); color:var(--green);">✓ Watched</span>` : `<button class="btn btn-sm btn-gold" onclick="markWatched('${l.id}')">Mark as watched</button>`}</div>` : ""}
-    </div>
-  `;
+
+function showSubjectForm(){
+  openModal(`
+    <h3>New subject</h3>
+    <label class="field-label">Subject name</label>
+    <input class="text-input" id="f-subname" placeholder="e.g. Mathematics">
+    <div class="modal-actions"><button class="btn" onclick="closeModal()">Cancel</button><button class="btn btn-gold" onclick="saveSubject()">Save subject</button></div>
+  `);
+}
+async function saveSubject(){
+  const name = document.getElementById("f-subname").value.trim();
+  if(!name) return;
+  const { error } = await sb.from("subjects").insert({ name, class_id: lessonsState().classId });
+  if(error){ alert(error.message); return; }
+  closeModal(); render();
+}
+async function deleteSubject(id){
+  if(!confirm("Delete this subject and all its lessons?")) return;
+  await sb.from("subjects").delete().eq("id", id);
+  render();
+}
+
+function showLessonForm(subjectId){
+  openModal(`
+    <h3>Add lesson</h3>
+    <label class="field-label">Title</label>
+    <input class="text-input" id="f-ltitle" placeholder="e.g. Photosynthesis explained">
+    <label class="field-label">YouTube link</label>
+    <input class="text-input" id="f-lurl" placeholder="https://www.youtube.com/watch?v=...">
+    <label class="field-label">Description</label>
+    <textarea class="text-input" id="f-ldesc" rows="4" placeholder="What this lesson covers"></textarea>
+    <div class="modal-actions"><button class="btn" onclick="closeModal()">Cancel</button><button class="btn btn-gold" onclick="saveLesson('${subjectId}')">Save lesson</button></div>
+  `);
+}
+async function saveLesson(subjectId){
+  const title = document.getElementById("f-ltitle").value.trim();
+  const url = document.getElementById("f-lurl").value.trim();
+  const description = document.getElementById("f-ldesc").value.trim();
+  if(!title || !url) return;
+  if(!ytEmbedUrl(url)){ alert("That doesn't look like a valid YouTube link."); return; }
+  const { error } = await sb.from("lessons").insert({ title, youtube_url:url, description, subject_id:subjectId });
+  if(error){ alert(error.message); return; }
+  closeModal(); render();
+}
+async function deleteLesson(id){
+  if(!confirm("Delete this lesson?")) return;
+  await sb.from("lessons").delete().eq("id", id);
+  lessonsState().lessonId = null;
+  render();
 }
 async function markWatched(lessonId){
   const { error } = await sb.from("lesson_views").insert({ lesson_id:lessonId, student_id:PROFILE.id });
@@ -620,34 +734,7 @@ async function viewLessonViews(lessonId, title, classId){
     <div class="modal-actions"><button class="btn btn-gold" onclick="closeModal()">Close</button></div>
   `);
 }
-function showLessonForm(){
-  const classes = window.__classesCache || [];
-  openModal(`
-    <h3>Add video lesson</h3>
-    <label class="field-label">Title</label>
-    <input class="text-input" id="f-ltitle" placeholder="e.g. Photosynthesis explained">
-    <label class="field-label">Class</label>
-    <select class="text-input" id="f-lclass">${classes.map(c=>`<option value="${c.id}">${esc(c.name)}</option>`).join("")}</select>
-    <label class="field-label">YouTube link</label>
-    <input class="text-input" id="f-lurl" placeholder="https://www.youtube.com/watch?v=...">
-    <div class="modal-actions"><button class="btn" onclick="closeModal()">Cancel</button><button class="btn btn-gold" onclick="saveLesson()">Save lesson</button></div>
-  `);
-}
-async function saveLesson(){
-  const title = document.getElementById("f-ltitle").value.trim();
-  const classId = document.getElementById("f-lclass").value;
-  const url = document.getElementById("f-lurl").value.trim();
-  if(!title || !classId || !url) return;
-  if(!ytEmbedUrl(url)){ alert("That doesn't look like a valid YouTube link."); return; }
-  const { error } = await sb.from("lessons").insert({ title, class_id:classId, youtube_url:url });
-  if(error){ alert(error.message); return; }
-  closeModal(); render();
-}
-async function deleteLesson(id){
-  if(!confirm("Delete this lesson?")) return;
-  await sb.from("lessons").delete().eq("id", id);
-  render();
-}
+
 
 /* ---------------- Quizzes ---------------- */
 async function renderQuizzes(){
@@ -1147,6 +1234,8 @@ async function saveBranding(){
 
 /* ---------------- Page-specific event wiring ---------------- */
 function attachPageHandlers(){
+  const lessonsClassSel = document.getElementById("lessons-class-select");
+  if(lessonsClassSel) lessonsClassSel.addEventListener("change", e=>{ lessonsState().classId = e.target.value; lessonsState().subjectId=null; lessonsState().lessonId=null; render(); });
   const attClass = document.getElementById("att-class");
   if(attClass) attClass.addEventListener("change", e=>{ window.__attClass = e.target.value; render(); });
   const attDate = document.getElementById("att-date");
