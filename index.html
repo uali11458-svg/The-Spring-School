@@ -1,0 +1,888 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Campus Register — School LMS</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Libre+Caslon+Text:ital,wght@0,400;0,700;1,400&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<style>
+  :root{
+    --ink:#152863; --ink-2:#1F3A82; --ink-3:#2C4A9A;
+    --parchment:#F7F4EC; --paper:#FFFFFF;
+    --gold:#C9A227; --gold-light:#F3E9C8; --gold-dark:#9C7C1B;
+    --line:#DDD6C4; --line-strong:#C9C0A6;
+    --text:#26251F; --text-muted:#726F62; --text-faint:#A7A392;
+    --green:#3F6851; --green-bg:#E4EDE7;
+    --red:#A94A3A; --red-bg:#F3E4E1;
+    --amber:#B8863A; --amber-bg:#F3E9D4;
+  }
+  *{box-sizing:border-box;}
+  html,body{margin:0;padding:0;}
+  body{ font-family:'Inter',sans-serif; background:var(--parchment); color:var(--text); min-height:100vh; -webkit-font-smoothing:antialiased; }
+  h1,h2,h3,.serif{ font-family:'Libre Caslon Text', serif; font-weight:400; }
+  a{color:inherit;}
+  button{ font-family:'Inter',sans-serif; cursor:pointer; }
+  input,select,textarea{ font-family:'Inter',sans-serif; }
+
+  #login-screen{ min-height:100vh; display:flex; align-items:center; justify-content:center; padding:24px; background:var(--ink); }
+  .login-card{ width:100%; max-width:400px; background:var(--paper); border-radius:10px; padding:40px 36px 32px; border:1px solid var(--line); }
+  .login-crest{ width:76px; height:76px; border-radius:50%; margin:0 auto 18px; overflow:hidden; background:#fff; border:2px solid var(--gold); display:flex; align-items:center; justify-content:center; }
+  .login-crest img{ width:100%; height:100%; object-fit:contain; }
+  .login-title{ text-align:center; font-size:26px; margin:0 0 4px; color:var(--ink); }
+  .login-sub{ text-align:center; color:var(--text-muted); font-size:13.5px; margin:0 0 24px; }
+  .field-label{ font-size:12.5px; color:var(--text-muted); display:block; margin:14px 0 6px; }
+  .text-input, select.text-input{ width:100%; padding:10px 12px; border:1px solid var(--line-strong); border-radius:6px; font-size:14.5px; background:#fdfcf9; color:var(--text); }
+  .text-input:focus, select.text-input:focus{ outline:none; border-color:var(--gold); }
+  .btn-primary{ width:100%; margin-top:20px; padding:12px; background:var(--ink); color:#fff; border:none; border-radius:6px; font-size:14.5px; font-weight:500; }
+  .btn-primary:hover{ background:var(--ink-2); }
+  .btn-primary:disabled{ opacity:.6; }
+  .error-text{ color:var(--red); font-size:13px; margin-top:10px; }
+  .notice-text{ color:var(--green); font-size:13px; margin-top:10px; }
+  .switch-line{ text-align:center; margin-top:16px; font-size:13px; color:var(--text-muted); }
+  .switch-link{ color:var(--gold-dark); font-weight:500; background:none; border:none; text-decoration:underline; font-size:13px; padding:0; }
+
+  #app{ display:none; }
+  #app.visible{ display:flex; min-height:100vh; }
+  .sidebar{ width:230px; flex-shrink:0; background:var(--ink); color:#EDE7D6; display:flex; flex-direction:column; padding:22px 0; position:sticky; top:0; height:100vh; }
+  .brand{ padding:0 20px 18px; border-bottom:1px solid rgba(255,255,255,0.12); margin-bottom:14px; display:flex; align-items:center; gap:10px; }
+  .brand-logo{ width:38px; height:38px; border-radius:50%; background:#fff; flex-shrink:0; overflow:hidden; display:flex; align-items:center; justify-content:center; }
+  .brand-logo img{ width:100%; height:100%; object-fit:contain; }
+  .brand-text{ min-width:0; }
+  .brand-name{ font-family:'Libre Caslon Text',serif; font-size:19px; color:#fff; line-height:1.25; }
+  .brand-tag{ font-size:11px; color:var(--gold); text-transform:uppercase; letter-spacing:1px; margin-top:4px; }
+  .nav-item{ display:flex; align-items:center; gap:10px; padding:10px 20px; font-size:13.5px; color:#C9C4B4; border-left:3px solid transparent; background:none; border:none; width:100%; text-align:left; }
+  .nav-item:hover{ background:rgba(255,255,255,0.05); color:#fff; }
+  .nav-item.active{ background:rgba(184,146,63,0.14); color:#fff; border-left-color:var(--gold); }
+  .nav-spacer{ flex:1; }
+  .sidebar-foot{ padding:14px 20px 0; border-top:1px solid rgba(255,255,255,0.12); margin-top:10px; }
+  .who{ font-size:13px; color:#fff; }
+  .who-role{ font-size:11px; color:var(--gold); text-transform:uppercase; letter-spacing:.6px; margin-top:2px; }
+  .logout-link{ display:inline-block; margin-top:10px; font-size:12px; color:#C9C4B4; text-decoration:underline; background:none; border:none; padding:0; }
+
+  .main{ flex:1; min-width:0; position:relative; }
+  .topbar{ display:flex; align-items:center; justify-content:space-between; padding:18px 36px; border-bottom:1px solid var(--line); background:var(--paper); }
+  .topbar-title{ font-size:22px; color:var(--ink); }
+  .topbar-date{ font-size:12.5px; color:var(--text-muted); }
+  .content{ padding:30px 36px 60px; max-width:1080px; }
+
+  .section-head{ display:flex; align-items:baseline; justify-content:space-between; border-bottom:1px solid var(--line-strong); padding-bottom:10px; margin-bottom:20px; }
+  .section-head h2{ font-size:20px; color:var(--ink); margin:0; }
+  .count{ font-size:12.5px; color:var(--text-muted); }
+
+  .btn{ padding:8px 14px; border-radius:6px; border:1px solid var(--line-strong); background:var(--paper); font-size:13px; color:var(--text); font-weight:500; }
+  .btn:hover{ border-color:var(--ink-3); }
+  .btn-gold{ background:var(--gold); border-color:var(--gold-dark); color:#fff; }
+  .btn-gold:hover{ background:var(--gold-dark); }
+  .btn-danger{ color:var(--red); }
+  .btn-sm{ padding:5px 10px; font-size:12px; }
+
+  table{ width:100%; border-collapse:collapse; }
+  th{ text-align:left; font-size:11.5px; text-transform:uppercase; letter-spacing:.5px; color:var(--text-muted); font-weight:500; padding:0 10px 10px; border-bottom:1px solid var(--line-strong); }
+  td{ padding:12px 10px; border-bottom:1px solid var(--line); font-size:14px; vertical-align:middle; }
+  tr:last-child td{ border-bottom:none; }
+
+  .pill{ display:inline-block; padding:3px 10px; border-radius:20px; font-size:11.5px; font-weight:500; }
+  .pill-amber{ background:var(--amber-bg); color:var(--amber); }
+
+  .grid-stats{ display:grid; grid-template-columns:repeat(4,1fr); gap:16px; margin-bottom:32px; }
+  .stat{ background:var(--paper); border:1px solid var(--line); border-radius:8px; padding:16px 18px; }
+  .stat-label{ font-size:12px; color:var(--text-muted); margin-bottom:6px; }
+  .stat-value{ font-family:'Libre Caslon Text',serif; font-size:28px; color:var(--ink); }
+  .stat-sub{ font-size:11.5px; color:var(--text-faint); margin-top:4px; }
+
+  .panel{ background:var(--paper); border:1px solid var(--line); border-radius:8px; padding:22px 24px; margin-bottom:24px; }
+  .panel h3{ font-size:16px; color:var(--ink); margin:0 0 14px; }
+
+  .form-row{ display:flex; gap:12px; flex-wrap:wrap; margin-bottom:12px; }
+  .form-row > div{ flex:1; min-width:150px; }
+
+  .modal-bg{ display:none; position:fixed; inset:0; background:rgba(28,43,58,0.45); align-items:flex-start; justify-content:center; padding-top:70px; z-index:50; }
+  .modal-bg.open{ display:flex; }
+  .modal{ background:var(--paper); width:100%; max-width:460px; border-radius:10px; padding:26px 26px 22px; max-height:80vh; overflow-y:auto; }
+  .modal h3{ margin:0 0 18px; font-size:18px; color:var(--ink); }
+  .modal-actions{ display:flex; justify-content:flex-end; gap:10px; margin-top:20px; }
+
+  .empty{ text-align:center; padding:50px 20px; color:var(--text-muted); }
+  .empty .serif{ font-size:18px; color:var(--ink); margin-bottom:6px; display:block; }
+
+  .toggle-btn{ padding:5px 12px; border-radius:6px; border:1px solid var(--line-strong); background:#fff; font-size:12.5px; margin-left:6px; }
+  .toggle-btn.on-present{ background:var(--green-bg); color:var(--green); border-color:var(--green); }
+  .toggle-btn.on-absent{ background:var(--red-bg); color:var(--red); border-color:var(--red); }
+
+  .announce-item{ padding:16px 0; border-bottom:1px solid var(--line); }
+  .announce-item:last-child{ border-bottom:none; }
+  .announce-title{ font-size:15.5px; color:var(--ink); font-weight:500; }
+  .announce-meta{ font-size:11.5px; color:var(--text-faint); margin:2px 0 8px; }
+  .announce-body{ font-size:13.5px; color:var(--text); line-height:1.6; }
+
+  .center-loading{ min-height:100vh; display:flex; align-items:center; justify-content:center; color:var(--text-muted); font-size:14px; }
+
+  @media (max-width:800px){
+    .sidebar{ display:none; }
+    .content{ padding:20px; }
+    .grid-stats{ grid-template-columns:repeat(2,1fr); }
+  }
+</style>
+</head>
+<body>
+
+<div id="login-screen">
+  <div class="login-card">
+    <div class="login-crest" id="login-crest"><img src="https://res.cloudinary.com/nnk47ifn/image/upload/v1788755036/spring_school.jpg" alt="School logo"></div>
+    <h1 class="login-title" id="login-school-name">Campus Register</h1>
+    <p class="login-sub" id="login-sub-text">Sign in to your school workspace</p>
+
+    <form id="signin-form">
+      <label class="field-label">Email</label>
+      <input class="text-input" type="email" id="si-email" required placeholder="name@school.edu">
+      <label class="field-label">Password</label>
+      <input class="text-input" type="password" id="si-password" required placeholder="••••••••">
+      <div id="si-error" class="error-text" style="display:none;"></div>
+      <button class="btn-primary" type="submit" id="si-btn">Sign in</button>
+    </form>
+
+    <form id="signup-form" style="display:none;">
+      <label class="field-label">Full name</label>
+      <input class="text-input" id="su-name" required placeholder="e.g. Ayesha Khan">
+      <label class="field-label">Role</label>
+      <select class="text-input" id="su-role">
+        <option value="teacher">Teacher</option>
+        <option value="student">Student</option>
+      </select>
+      <div id="su-class-wrap" style="display:none;">
+        <label class="field-label">Class</label>
+        <select class="text-input" id="su-class"></select>
+      </div>
+      <label class="field-label">Email</label>
+      <input class="text-input" type="email" id="su-email" required placeholder="name@school.edu">
+      <label class="field-label">Password</label>
+      <input class="text-input" type="password" id="su-password" required minlength="6" placeholder="At least 6 characters">
+      <div id="su-error" class="error-text" style="display:none;"></div>
+      <button class="btn-primary" type="submit" id="su-btn">Create account</button>
+    </form>
+
+    <div id="su-notice" class="notice-text" style="display:none;"></div>
+
+    <p class="switch-line">
+      <span id="switch-prompt">New school workspace? </span>
+      <button class="switch-link" id="switch-btn">Create one</button>
+    </p>
+  </div>
+</div>
+
+<div id="app">
+  <div class="sidebar">
+    <div class="brand">
+      <div class="brand-logo"><img src="https://res.cloudinary.com/nnk47ifn/image/upload/v1788755036/spring_school.jpg" alt="Logo"></div>
+      <div class="brand-text">
+        <div class="brand-name" id="side-school-name">Campus Register</div>
+        <div class="brand-tag">School Workspace</div>
+      </div>
+    </div>
+    <nav id="nav-items"></nav>
+    <div class="nav-spacer"></div>
+    <div class="sidebar-foot">
+      <div class="who" id="who-name">—</div>
+      <div class="who-role" id="who-role">—</div>
+      <button class="logout-link" id="logout-btn">Sign out</button>
+    </div>
+  </div>
+  <div class="main">
+    <div class="topbar">
+      <div class="topbar-title serif" id="page-title">Dashboard</div>
+      <div class="topbar-date" id="topbar-date"></div>
+    </div>
+    <div class="content" id="content"></div>
+    <div class="modal-bg" id="modal-bg">
+      <div class="modal" id="modal-inner"></div>
+    </div>
+  </div>
+</div>
+
+<script>
+/* ======================= CONFIGURE THIS ======================= */
+const SUPABASE_URL = "https://hfscbxyykuielpzrhmnr.supabase.co";
+const SUPABASE_ANON_KEY = "sb_publishable_pyXjHTJIpBa88iMNl-Zq5w_igyOSaXb";
+/* ================================================================ */
+
+const sb = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
+let PROFILE = null;
+let SESSION = null;
+let ACTIVE_PAGE = "dashboard";
+let SCHOOL = { name: "The Spring School System", tagline: "The Future Begins Here" };
+
+function esc(s){ const d = document.createElement("div"); d.textContent = s==null?"":String(s); return d.innerHTML; }
+function todayStr(){ return new Date().toISOString().slice(0,10); }
+function fmtDate(d){ return new Date(d).toLocaleDateString(undefined,{month:'short',day:'numeric',year:'numeric'}); }
+
+/* ---------------- Branding ---------------- */
+async function loadSchoolSettings(){
+  const { data } = await sb.from("school_settings").select("*").eq("id",1).maybeSingle();
+  if(data){ SCHOOL = { name: data.name || "Campus Register", tagline: data.tagline || "School Workspace" }; }
+  document.getElementById("login-school-name").textContent = SCHOOL.name;
+  document.getElementById("side-school-name").textContent = SCHOOL.name;
+}
+
+/* ---------------- Auth: sign in / sign up toggle ---------------- */
+let mode = "signin";
+document.getElementById("switch-btn").addEventListener("click", async ()=>{
+  mode = mode === "signin" ? "signup" : "signin";
+  document.getElementById("signin-form").style.display = mode==="signin" ? "block":"none";
+  document.getElementById("signup-form").style.display = mode==="signup" ? "block":"none";
+  document.getElementById("switch-prompt").textContent = mode==="signin" ? "New school workspace? " : "Already have an account? ";
+  document.getElementById("switch-btn").textContent = mode==="signin" ? "Create one" : "Sign in";
+  document.getElementById("login-sub-text").textContent = mode==="signin" ? "Sign in to your school workspace" : "Create your school workspace account";
+  document.getElementById("su-notice").style.display = "none";
+  if(mode==="signup"){ await refreshSignupClasses(); await refreshAdminOption(); }
+});
+
+document.getElementById("su-role").addEventListener("change", e=>{
+  document.getElementById("su-class-wrap").style.display = e.target.value==="student" ? "block":"none";
+});
+
+let ADMIN_EXISTS = true;
+async function refreshAdminOption(){
+  const { data, error } = await sb.rpc("admin_exists");
+  ADMIN_EXISTS = error ? true : !!data;
+  const roleSel = document.getElementById("su-role");
+  const adminOpt = roleSel.querySelector('option[value="admin"]');
+  if(ADMIN_EXISTS){
+    if(adminOpt) adminOpt.remove();
+    if(roleSel.value === "admin") roleSel.value = "teacher";
+  } else if(!adminOpt){
+    const opt = document.createElement("option");
+    opt.value = "admin"; opt.textContent = "Admin (first account — sets up the school)";
+    roleSel.insertBefore(opt, roleSel.firstChild);
+    roleSel.value = "admin";
+  }
+}
+
+async function refreshSignupClasses(){
+  const { data } = await sb.from("classes").select("id,name").order("name");
+  const sel = document.getElementById("su-class");
+  sel.innerHTML = (data||[]).length ? data.map(c=>`<option value="${c.id}">${esc(c.name)}</option>`).join("") : `<option value="">No classes yet — ask admin</option>`;
+}
+
+document.getElementById("signin-form").addEventListener("submit", async e=>{
+  e.preventDefault();
+  const email = document.getElementById("si-email").value.trim();
+  const password = document.getElementById("si-password").value;
+  const errBox = document.getElementById("si-error");
+  errBox.style.display="none";
+  document.getElementById("si-btn").disabled = true;
+  document.getElementById("si-btn").textContent = "Signing in…";
+  const { error } = await sb.auth.signInWithPassword({ email, password });
+  document.getElementById("si-btn").disabled = false;
+  document.getElementById("si-btn").textContent = "Sign in";
+  if(error){ errBox.textContent = error.message; errBox.style.display="block"; }
+});
+
+document.getElementById("signup-form").addEventListener("submit", async e=>{
+  e.preventDefault();
+  const fullName = document.getElementById("su-name").value.trim();
+  const role = document.getElementById("su-role").value;
+  const classId = document.getElementById("su-class").value;
+  const email = document.getElementById("su-email").value.trim();
+  const password = document.getElementById("su-password").value;
+  const errBox = document.getElementById("su-error");
+  errBox.style.display="none";
+  document.getElementById("su-btn").disabled = true;
+  document.getElementById("su-btn").textContent = "Creating account…";
+
+  const { data, error } = await sb.auth.signUp({ email, password });
+  if(error){
+    errBox.textContent = error.message; errBox.style.display="block";
+    document.getElementById("su-btn").disabled = false; document.getElementById("su-btn").textContent = "Create account";
+    return;
+  }
+
+  let session = data.session;
+  if(!session){
+    // Email confirmation may be off but the client didn't get a session back yet — try signing in directly.
+    const signInResult = await sb.auth.signInWithPassword({ email, password });
+    session = signInResult.data?.session || null;
+  }
+
+  const userId = data.user?.id || session?.user?.id;
+  if(userId && session){
+    const { error: profErr } = await sb.from("profiles").insert({
+      id:userId, full_name:fullName, role, class_id: role==="student" ? (classId||null) : null,
+      approved: role === "teacher" ? false : true
+    });
+    if(profErr){
+      errBox.textContent = profErr.message; errBox.style.display="block";
+      document.getElementById("su-btn").disabled = false; document.getElementById("su-btn").textContent = "Create account";
+      return;
+    }
+  }
+  document.getElementById("su-btn").disabled = false;
+  document.getElementById("su-btn").textContent = "Create account";
+
+  if(!session){
+    document.getElementById("su-notice").textContent = "Account created. Check your email to confirm, then sign in.";
+    document.getElementById("su-notice").style.display = "block";
+    document.getElementById("switch-btn").click();
+  }
+});
+
+document.getElementById("logout-btn").addEventListener("click", async ()=>{
+  await sb.auth.signOut();
+});
+
+/* ---------------- Boot / auth state ---------------- */
+sb.auth.onAuthStateChange(async (event, session)=>{
+  SESSION = session;
+  if(session){
+    const { data } = await sb.from("profiles").select("*").eq("id", session.user.id).maybeSingle();
+    PROFILE = data;
+    if(PROFILE && PROFILE.role==="teacher" && PROFILE.approved===false){
+      showPendingScreen();
+    } else if(PROFILE){
+      enterApp();
+    } else {
+      showLogin();
+    }
+  } else {
+    PROFILE = null;
+    showLogin();
+  }
+});
+
+function showPendingScreen(){
+  document.getElementById("app").classList.remove("visible");
+  document.getElementById("login-screen").style.display = "flex";
+  document.getElementById("login-screen").innerHTML = `
+    <div class="login-card" style="text-align:center;">
+      <div class="login-crest"><img src="https://res.cloudinary.com/nnk47ifn/image/upload/v1788755036/spring_school.jpg" alt="School logo"></div>
+      <h1 class="login-title">Almost there</h1>
+      <p class="login-sub">Your teacher account is waiting for admin approval. Once approved, sign in again to access your workspace.</p>
+      <button class="btn-primary" id="pending-signout">Sign out</button>
+    </div>
+  `;
+  document.getElementById("pending-signout").addEventListener("click", async ()=>{ await sb.auth.signOut(); location.reload(); });
+}
+
+function showLogin(){
+  document.getElementById("app").classList.remove("visible");
+  document.getElementById("login-screen").style.display = "flex";
+}
+
+function enterApp(){
+  document.getElementById("login-screen").style.display = "none";
+  document.getElementById("app").classList.add("visible");
+  document.getElementById("who-name").textContent = PROFILE.full_name;
+  document.getElementById("who-role").textContent = PROFILE.role;
+  document.getElementById("side-school-name").textContent = SCHOOL.name;
+  document.getElementById("topbar-date").textContent = new Date().toLocaleDateString(undefined,{weekday:'long', year:'numeric', month:'long', day:'numeric'});
+  buildNav();
+  navigate(ACTIVE_PAGE);
+}
+
+/* ---------------- Nav ---------------- */
+const NAV_BY_ROLE = {
+  admin:[["dashboard","Dashboard"],["classes","Classes"],["teachers","Teachers"],["students","Students"],["assignments","Assignments"],["attendance","Attendance"],["gradebook","Gradebook"],["announcements","Announcements"],["settings","Settings"]],
+  teacher:[["dashboard","Dashboard"],["classes","Classes"],["assignments","Assignments"],["attendance","Attendance"],["gradebook","Gradebook"],["announcements","Announcements"]],
+  student:[["dashboard","Dashboard"],["assignments","Assignments"],["gradebook","My grades"],["announcements","Announcements"]]
+};
+function buildNav(){
+  const nav = document.getElementById("nav-items");
+  nav.innerHTML = "";
+  NAV_BY_ROLE[PROFILE.role].forEach(([key,label])=>{
+    const b = document.createElement("button");
+    b.className = "nav-item"+(key===ACTIVE_PAGE?" active":"");
+    b.textContent = label;
+    b.addEventListener("click", ()=>navigate(key));
+    nav.appendChild(b);
+  });
+}
+function navigate(page){
+  ACTIVE_PAGE = page;
+  buildNav();
+  const titles = {dashboard:"Dashboard", classes:"Classes", teachers:"Teachers", students:"Students", assignments:"Assignments", attendance:"Attendance", gradebook: PROFILE.role==="student"?"My grades":"Gradebook", announcements:"Announcements", settings:"Settings"};
+  document.getElementById("page-title").textContent = titles[page] || "Dashboard";
+  render();
+}
+
+function openModal(html){ document.getElementById("modal-inner").innerHTML = html; document.getElementById("modal-bg").classList.add("open"); }
+function closeModal(){ document.getElementById("modal-bg").classList.remove("open"); }
+document.getElementById("modal-bg").addEventListener("click", e=>{ if(e.target.id==="modal-bg") closeModal(); });
+
+/* ---------------- Router ---------------- */
+async function render(){
+  const c = document.getElementById("content");
+  c.innerHTML = `<div class="empty">Loading…</div>`;
+  if(ACTIVE_PAGE==="dashboard") c.innerHTML = await renderDashboard();
+  else if(ACTIVE_PAGE==="classes") c.innerHTML = await renderClasses();
+  else if(ACTIVE_PAGE==="teachers") c.innerHTML = await renderTeachers();
+  else if(ACTIVE_PAGE==="students") c.innerHTML = await renderStudents();
+  else if(ACTIVE_PAGE==="assignments") c.innerHTML = await renderAssignments();
+  else if(ACTIVE_PAGE==="attendance") c.innerHTML = await renderAttendance();
+  else if(ACTIVE_PAGE==="gradebook") c.innerHTML = await renderGradebook();
+  else if(ACTIVE_PAGE==="announcements") c.innerHTML = await renderAnnouncements();
+  else if(ACTIVE_PAGE==="settings") c.innerHTML = await renderSettings();
+  attachPageHandlers();
+}
+
+/* ---------------- Dashboard ---------------- */
+async function renderDashboard(){
+  const { data: ann } = await sb.from("announcements").select("*").order("created_at",{ascending:false}).limit(3);
+
+  if(PROFILE.role==="student"){
+    const { data: assignments } = await sb.from("assignments").select("*").eq("class_id", PROFILE.class_id);
+    const { data: marks } = await sb.from("marks").select("*").eq("student_id", PROFILE.id);
+    let sum=0,n=0;
+    (assignments||[]).forEach(a=>{
+      const m = (marks||[]).find(x=>x.assignment_id===a.id);
+      if(m && m.marks!=null){ sum += (m.marks/a.max_marks)*100; n++; }
+    });
+    const avg = n? Math.round(sum/n) : null;
+    return `
+      <div class="grid-stats">
+        <div class="stat"><div class="stat-label">Average score</div><div class="stat-value">${avg===null?"—":avg+"%"}</div></div>
+        <div class="stat"><div class="stat-label">Assignments</div><div class="stat-value">${(assignments||[]).length}</div></div>
+      </div>
+      <div class="panel"><h3>Latest announcements</h3>${renderAnnList(ann)}</div>
+    `;
+  }
+
+  let classQ = sb.from("classes").select("id");
+  if(PROFILE.role==="teacher") classQ = classQ.eq("teacher_id", PROFILE.id);
+  const { data: classes } = await classQ;
+  const classIds = (classes||[]).map(c=>c.id);
+  const safeIds = classIds.length ? classIds : ["00000000-0000-0000-0000-000000000000"];
+
+  let studentCount;
+  if(PROFILE.role==="admin"){
+    const { count } = await sb.from("profiles").select("id",{count:"exact",head:true}).eq("role","student");
+    studentCount = count;
+  } else {
+    const { count } = await sb.from("profiles").select("id",{count:"exact",head:true}).eq("role","student").in("class_id", safeIds);
+    studentCount = count;
+  }
+  const { count: assignmentCount } = await sb.from("assignments").select("id",{count:"exact",head:true}).in("class_id", safeIds);
+  const today = todayStr();
+  const { data: attToday } = await sb.from("attendance").select("status").eq("date",today).in("class_id", safeIds);
+  const total = (attToday||[]).length;
+  const present = (attToday||[]).filter(a=>a.status==="present").length;
+  const attPct = total? Math.round(present/total*100) : null;
+
+  return `
+    <div class="grid-stats">
+      <div class="stat"><div class="stat-label">Classes</div><div class="stat-value">${(classes||[]).length}</div></div>
+      <div class="stat"><div class="stat-label">Students</div><div class="stat-value">${studentCount||0}</div></div>
+      <div class="stat"><div class="stat-label">Assignments</div><div class="stat-value">${assignmentCount||0}</div></div>
+      <div class="stat"><div class="stat-label">Attendance today</div><div class="stat-value">${attPct===null?"—":attPct+"%"}</div><div class="stat-sub">${total? "marked for "+total+" students":"not marked yet"}</div></div>
+    </div>
+    <div class="panel"><h3>Latest announcements</h3>${renderAnnList(ann)}</div>
+  `;
+}
+function renderAnnList(ann){
+  if(!ann || !ann.length) return `<div class="empty">No announcements posted yet.</div>`;
+  return ann.map(a=>`<div class="announce-item"><div class="announce-title">${esc(a.title)}</div><div class="announce-meta">${fmtDate(a.created_at)}</div><div class="announce-body">${esc(a.body)}</div></div>`).join("");
+}
+
+/* ---------------- Classes ---------------- */
+async function myClasses(){
+  let q = sb.from("classes").select("*, teacher:profiles!classes_teacher_id_fkey(full_name)").order("name");
+  if(PROFILE.role==="teacher") q = q.eq("teacher_id", PROFILE.id);
+  const { data } = await q;
+  return data || [];
+}
+async function renderClasses(){
+  const list = await myClasses();
+  const { data: studentsAll } = await sb.from("profiles").select("class_id").eq("role","student");
+  const counts = {};
+  (studentsAll||[]).forEach(s=>{ if(s.class_id) counts[s.class_id]=(counts[s.class_id]||0)+1; });
+
+  return `
+    <div class="section-head">
+      <h2>Classes</h2>
+      ${PROFILE.role==="admin" ? `<button class="btn btn-gold" onclick="showClassForm()">+ New class</button>` : `<span class="count">${list.length} classes</span>`}
+    </div>
+    ${list.length ? `
+    <table>
+      <tr><th>Class</th><th>Subject</th><th>Teacher</th><th>Students</th><th></th></tr>
+      ${list.map(c=>`
+        <tr>
+          <td>${esc(c.name)}</td><td>${esc(c.subject)}</td><td>${esc(c.teacher?.full_name || "Unassigned")}</td><td>${counts[c.id]||0}</td>
+          <td style="text-align:right;">${PROFILE.role==="admin" ? `<button class="btn btn-sm btn-danger" onclick="deleteClass('${c.id}')">Remove</button>` : ""}</td>
+        </tr>
+      `).join("")}
+    </table>` : `<div class="empty"><span class="serif">No classes yet</span>Create your first class to get started.</div>`}
+  `;
+}
+async function showClassForm(){
+  const { data: teachers } = await sb.from("profiles").select("id,full_name").eq("role","teacher");
+  openModal(`
+    <h3>New class</h3>
+    <label class="field-label">Class name</label>
+    <input class="text-input" id="f-cname" placeholder="e.g. Grade 8 — Section C">
+    <label class="field-label">Subject</label>
+    <input class="text-input" id="f-csubject" placeholder="e.g. Science">
+    <label class="field-label">Teacher</label>
+    <select class="text-input" id="f-cteacher"><option value="">Unassigned</option>${(teachers||[]).map(t=>`<option value="${t.id}">${esc(t.full_name)}</option>`).join("")}</select>
+    <div class="modal-actions"><button class="btn" onclick="closeModal()">Cancel</button><button class="btn btn-gold" onclick="saveClass()">Save class</button></div>
+  `);
+}
+async function saveClass(){
+  const name = document.getElementById("f-cname").value.trim();
+  const subject = document.getElementById("f-csubject").value.trim() || "General";
+  const teacherId = document.getElementById("f-cteacher").value || null;
+  if(!name) return;
+  await sb.from("classes").insert({ name, subject, teacher_id: teacherId });
+  closeModal(); render();
+}
+async function deleteClass(id){
+  if(!confirm("Remove this class?")) return;
+  await sb.from("classes").delete().eq("id", id);
+  render();
+}
+
+/* ---------------- Teachers (admin approval) ---------------- */
+async function renderTeachers(){
+  const { data: teachers, error } = await sb.from("profiles").select("*").eq("role","teacher").order("approved").order("full_name");
+  if(error) return `<div class="empty"><span class="serif">Something went wrong</span>${esc(error.message)}</div>`;
+  const pending = (teachers||[]).filter(t=>!t.approved);
+  const approved = (teachers||[]).filter(t=>t.approved);
+
+  return `
+    <div class="section-head"><h2>Teachers</h2><span class="count">${(teachers||[]).length} total</span></div>
+    ${pending.length ? `
+    <div class="panel" style="border-color:var(--amber); background:var(--amber-bg);">
+      <h3 style="margin-bottom:12px;">Waiting for approval (${pending.length})</h3>
+      <table>
+        <tr><th>Name</th><th></th></tr>
+        ${pending.map(t=>`<tr><td>${esc(t.full_name)}</td><td style="text-align:right;">
+          <button class="btn btn-sm btn-gold" onclick="approveTeacher('${t.id}')">Approve</button>
+          <button class="btn btn-sm btn-danger" onclick="rejectTeacher('${t.id}')" style="margin-left:6px;">Reject</button>
+        </td></tr>`).join("")}
+      </table>
+    </div>` : ``}
+    <div class="panel">
+      <h3>Active teachers</h3>
+      ${approved.length ? `
+      <table><tr><th>Name</th></tr>${approved.map(t=>`<tr><td>${esc(t.full_name)}</td></tr>`).join("")}</table>
+      ` : `<div class="empty">No approved teachers yet.</div>`}
+    </div>
+  `;
+}
+async function approveTeacher(id){
+  const { error } = await sb.from("profiles").update({ approved: true }).eq("id", id);
+  if(error){ alert("Could not approve: " + error.message); }
+  render();
+}
+async function rejectTeacher(id){
+  if(!confirm("Remove this teacher account request? This cannot be undone.")) return;
+  const { error } = await sb.from("profiles").delete().eq("id", id);
+  if(error){ alert("Could not remove: " + error.message); }
+  render();
+}
+
+
+async function renderStudents(){
+  const { data: students, error: studErr } = await sb.from("profiles").select("*, class:classes!profiles_class_id_fkey(name)").eq("role","student").order("full_name");
+  const { data: classes, error: classErr } = await sb.from("classes").select("id,name").order("name");
+  window.__classesCache = classes || [];
+
+  if(studErr || classErr){
+    return `<div class="empty"><span class="serif">Something went wrong loading this page</span>${esc((studErr||classErr).message)}</div>`;
+  }
+  return `
+    <div class="section-head"><h2>Students</h2><span class="count">${(students||[]).length} total</span></div>
+    ${(classes||[]).length===0 ? `<div class="panel" style="border-color:var(--amber); background:var(--amber-bg);"><strong>No classes exist yet.</strong> Go to <em>Classes</em> and create one first — then you'll be able to assign students to it here.</div>` : ``}
+    <p style="font-size:13px;color:var(--text-muted);margin-top:-4px;margin-bottom:18px;">Students appear here once they sign up and pick a class. You can reassign their class below.</p>
+    ${(students||[]).length ? `
+    <table>
+      <tr><th>Name</th><th>Class</th></tr>
+      ${students.map(s=>`
+        <tr><td>${esc(s.full_name)}</td><td>
+          <select class="text-input" style="max-width:220px;" onchange="changeStudentClass('${s.id}', this.value)">
+            <option value="">Unassigned</option>
+            ${(classes||[]).map(c=>`<option value="${c.id}" ${s.class_id===c.id?'selected':''}>${esc(c.name)}</option>`).join("")}
+          </select>
+        </td></tr>
+      `).join("")}
+    </table>` : `<div class="empty"><span class="serif">No students yet</span>Share the sign-up link with your students.</div>`}
+  `;
+}
+async function changeStudentClass(studentId, classId){
+  const { error } = await sb.from("profiles").update({ class_id: classId || null }).eq("id", studentId);
+  if(error){ alert("Could not update class: " + error.message); }
+  render();
+}
+
+/* ---------------- Assignments ---------------- */
+async function renderAssignments(){
+  if(PROFILE.role==="student"){
+    const { data: list } = await sb.from("assignments").select("*, class:classes(name)").eq("class_id", PROFILE.class_id).order("due",{ascending:false});
+    const { data: marks } = await sb.from("marks").select("*").eq("student_id", PROFILE.id);
+    const markMap = {}; (marks||[]).forEach(m=>markMap[m.assignment_id]=m.marks);
+    return `
+      <div class="section-head"><h2>Assignments</h2><span class="count">${(list||[]).length} total</span></div>
+      ${(list||[]).length ? `
+      <table><tr><th>Assignment</th><th>Class</th><th>Due</th><th>Max marks</th><th>Your score</th></tr>
+      ${list.map(a=>`<tr><td>${esc(a.title)}</td><td>${esc(a.class?.name||"—")}</td><td>${fmtDate(a.due)}</td><td>${a.max_marks}</td>
+        <td>${markMap[a.id]!=null ? markMap[a.id]+" / "+a.max_marks : `<span class="pill pill-amber">Pending</span>`}</td></tr>`).join("")}
+      </table>` : `<div class="empty"><span class="serif">Nothing assigned yet</span></div>`}
+    `;
+  }
+
+  const classes = await myClasses();
+  const classIds = classes.map(c=>c.id);
+  const safeIds = classIds.length ? classIds : ["00000000-0000-0000-0000-000000000000"];
+  const { data: list } = await sb.from("assignments").select("*, class:classes(name)").in("class_id", safeIds).order("due",{ascending:false});
+  window.__classesCache = classes;
+
+  return `
+    <div class="section-head">
+      <h2>Assignments</h2>
+      ${classes.length ? `<button class="btn btn-gold" onclick="showAssignmentForm()">+ New assignment</button>` : ``}
+    </div>
+    ${(list||[]).length ? `
+    <table><tr><th>Assignment</th><th>Class</th><th>Due</th><th>Max marks</th><th></th></tr>
+    ${list.map(a=>`<tr><td>${esc(a.title)}</td><td>${esc(a.class?.name||"—")}</td><td>${fmtDate(a.due)}</td><td>${a.max_marks}</td>
+      <td style="text-align:right;"><button class="btn btn-sm" onclick="openGrading('${a.id}','${esc(a.title)}',${a.max_marks},'${a.class_id}')">Grade</button>
+      <button class="btn btn-sm btn-danger" onclick="deleteAssignment('${a.id}')" style="margin-left:6px;">Delete</button></td></tr>`).join("")}
+    </table>` : `<div class="empty"><span class="serif">No assignments yet</span></div>`}
+  `;
+}
+function showAssignmentForm(){
+  const classes = window.__classesCache || [];
+  openModal(`
+    <h3>New assignment</h3>
+    <label class="field-label">Title</label>
+    <input class="text-input" id="f-atitle" placeholder="e.g. Chapter 4 Quiz">
+    <label class="field-label">Class</label>
+    <select class="text-input" id="f-aclass">${classes.map(c=>`<option value="${c.id}">${esc(c.name)}</option>`).join("")}</select>
+    <div class="form-row">
+      <div><label class="field-label">Due date</label><input type="date" class="text-input" id="f-adue" value="${todayStr()}"></div>
+      <div><label class="field-label">Max marks</label><input type="number" class="text-input" id="f-amax" value="20"></div>
+    </div>
+    <div class="modal-actions"><button class="btn" onclick="closeModal()">Cancel</button><button class="btn btn-gold" onclick="saveAssignment()">Save assignment</button></div>
+  `);
+}
+async function saveAssignment(){
+  const title = document.getElementById("f-atitle").value.trim();
+  const classId = document.getElementById("f-aclass").value;
+  const due = document.getElementById("f-adue").value || todayStr();
+  const maxMarks = parseInt(document.getElementById("f-amax").value) || 20;
+  if(!title || !classId) return;
+  await sb.from("assignments").insert({ title, class_id:classId, due, max_marks:maxMarks });
+  closeModal(); render();
+}
+async function deleteAssignment(id){
+  if(!confirm("Delete this assignment?")) return;
+  await sb.from("assignments").delete().eq("id", id);
+  render();
+}
+async function openGrading(assignmentId, title, maxMarks, classId){
+  const { data: roster } = await sb.from("profiles").select("id,full_name").eq("role","student").eq("class_id", classId).order("full_name");
+  const { data: marks } = await sb.from("marks").select("*").eq("assignment_id", assignmentId);
+  const markMap = {}; (marks||[]).forEach(m=>markMap[m.student_id]=m.marks);
+  openModal(`
+    <h3>Grade — ${esc(title)}</h3>
+    <div style="max-height:340px; overflow-y:auto;" id="grade-rows" data-aid="${assignmentId}" data-max="${maxMarks}">
+    ${(roster||[]).map(s=>`
+      <div style="display:flex; align-items:center; justify-content:space-between; padding:8px 0; border-bottom:1px solid var(--line);">
+        <span style="font-size:14px;">${esc(s.full_name)}</span>
+        <input type="number" class="text-input" style="width:80px; text-align:center;" min="0" max="${maxMarks}" data-sid="${s.id}" value="${markMap[s.id]!=null?markMap[s.id]:''}" placeholder="/ ${maxMarks}">
+      </div>`).join("")}
+    ${(roster||[]).length===0 ? `<div class="empty">No students in this class yet.</div>`:''}
+    </div>
+    <div class="modal-actions"><button class="btn" onclick="closeModal()">Cancel</button><button class="btn btn-gold" onclick="saveGrades()">Save marks</button></div>
+  `);
+}
+async function saveGrades(){
+  const wrap = document.getElementById("grade-rows");
+  const assignmentId = wrap.dataset.aid;
+  const inputs = wrap.querySelectorAll("input[data-sid]");
+  for(const inp of inputs){
+    const sid = inp.dataset.sid;
+    const val = inp.value === "" ? null : Math.max(0, parseInt(inp.value));
+    await sb.from("marks").upsert({ assignment_id:assignmentId, student_id:sid, marks:val }, { onConflict:"assignment_id,student_id" });
+  }
+  closeModal(); render();
+}
+
+/* ---------------- Attendance ---------------- */
+async function renderAttendance(){
+  if(PROFILE.role==="student") return `<div class="empty"><span class="serif">Attendance is managed by your teacher</span></div>`;
+  const classes = await myClasses();
+  if(!classes.length) return `<div class="empty"><span class="serif">No classes yet</span></div>`;
+  const activeClassId = window.__attClass || classes[0].id;
+  window.__attClass = activeClassId;
+  const activeDate = window.__attDate || todayStr();
+  window.__attDate = activeDate;
+
+  const { data: roster } = await sb.from("profiles").select("id,full_name").eq("role","student").eq("class_id",activeClassId).order("full_name");
+  const { data: att } = await sb.from("attendance").select("*").eq("class_id",activeClassId).eq("date",activeDate);
+  const rec = {}; (att||[]).forEach(a=>rec[a.student_id]=a.status);
+
+  return `
+    <div class="section-head"><h2>Attendance</h2></div>
+    <div class="form-row" style="margin-bottom:22px;">
+      <div><label class="field-label">Class</label>
+        <select class="text-input" id="att-class">${classes.map(c=>`<option value="${c.id}" ${c.id===activeClassId?'selected':''}>${esc(c.name)}</option>`).join("")}</select>
+      </div>
+      <div><label class="field-label">Date</label><input type="date" class="text-input" id="att-date" value="${activeDate}"></div>
+    </div>
+    ${(roster||[]).length ? `
+    <table><tr><th>Student</th><th style="text-align:right;">Mark</th></tr>
+    ${roster.map(s=>`<tr><td>${esc(s.full_name)}</td><td style="text-align:right;">
+      <button class="toggle-btn ${rec[s.id]==='present'?'on-present':''}" onclick="markAttendance('${s.id}','present')">Present</button>
+      <button class="toggle-btn ${rec[s.id]==='absent'?'on-absent':''}" onclick="markAttendance('${s.id}','absent')">Absent</button>
+    </td></tr>`).join("")}
+    </table>` : `<div class="empty">No students in this class yet.</div>`}
+  `;
+}
+async function markAttendance(sid, status){
+  await sb.from("attendance").upsert({ class_id:window.__attClass, date:window.__attDate, student_id:sid, status }, { onConflict:"class_id,date,student_id" });
+  render();
+}
+
+/* ---------------- Gradebook ---------------- */
+async function renderGradebook(){
+  if(PROFILE.role==="student"){
+    const { data: list } = await sb.from("assignments").select("*").eq("class_id", PROFILE.class_id).order("due");
+    const { data: marks } = await sb.from("marks").select("*").eq("student_id", PROFILE.id);
+    const markMap = {}; (marks||[]).forEach(m=>markMap[m.assignment_id]=m.marks);
+    return `
+      <div class="section-head"><h2>My grades</h2></div>
+      ${(list||[]).length ? `<table><tr><th>Assignment</th><th>Max marks</th><th>Your score</th></tr>
+      ${list.map(a=>`<tr><td>${esc(a.title)}</td><td>${a.max_marks}</td><td>${markMap[a.id]!=null?markMap[a.id]+" / "+a.max_marks:"—"}</td></tr>`).join("")}
+      </table>` : `<div class="empty">No grades recorded yet.</div>`}
+    `;
+  }
+  const classes = await myClasses();
+  if(!classes.length) return `<div class="empty">No classes yet.</div>`;
+  const activeClassId = window.__gbClass || classes[0].id;
+  window.__gbClass = activeClassId;
+  const { data: roster } = await sb.from("profiles").select("id,full_name").eq("role","student").eq("class_id",activeClassId).order("full_name");
+  const { data: assignments } = await sb.from("assignments").select("*").eq("class_id",activeClassId).order("due");
+  const aIds = (assignments||[]).map(a=>a.id);
+  const { data: marks } = await sb.from("marks").select("*").in("assignment_id", aIds.length?aIds:["00000000-0000-0000-0000-000000000000"]);
+  const markMap = {}; (marks||[]).forEach(m=>markMap[m.assignment_id+"__"+m.student_id]=m.marks);
+
+  function avgFor(sid){
+    let sum=0,n=0;
+    (assignments||[]).forEach(a=>{
+      const m = markMap[a.id+"__"+sid];
+      if(m!=null){ sum += (m/a.max_marks)*100; n++; }
+    });
+    return n? Math.round(sum/n) : null;
+  }
+
+  return `
+    <div class="section-head"><h2>Gradebook</h2></div>
+    <div class="form-row" style="margin-bottom:20px;"><div style="max-width:280px;">
+      <label class="field-label">Class</label>
+      <select class="text-input" id="gb-class">${classes.map(c=>`<option value="${c.id}" ${c.id===activeClassId?'selected':''}>${esc(c.name)}</option>`).join("")}</select>
+    </div></div>
+    ${(roster||[]).length && (assignments||[]).length ? `
+    <table><tr><th>Student</th>${assignments.map(a=>`<th>${esc(a.title)}</th>`).join("")}<th>Average</th></tr>
+    ${roster.map(s=>`<tr><td>${esc(s.full_name)}</td>${assignments.map(a=>{
+      const m = markMap[a.id+"__"+s.id];
+      return `<td>${m!=null?m+" / "+a.max_marks:"—"}</td>`;
+    }).join("")}<td><strong>${avgFor(s.id)===null?"—":avgFor(s.id)+"%"}</strong></td></tr>`).join("")}
+    </table>` : `<div class="empty">Add students and assignments to see the gradebook.</div>`}
+  `;
+}
+
+/* ---------------- Announcements ---------------- */
+async function renderAnnouncements(){
+  const { data: list } = await sb.from("announcements").select("*").order("created_at",{ascending:false});
+  const canPost = PROFILE.role !== "student";
+  return `
+    <div class="section-head"><h2>Announcements</h2>${canPost?`<button class="btn btn-gold" onclick="showAnnouncementForm()">+ Post announcement</button>`:``}</div>
+    ${(list||[]).length ? list.map(a=>`
+      <div class="announce-item">
+        <div class="announce-title">${esc(a.title)}</div>
+        <div class="announce-meta">${fmtDate(a.created_at)} ${canPost?`· <a href="#" onclick="deleteAnnouncement('${a.id}');return false;" style="color:var(--red);">remove</a>`:""}</div>
+        <div class="announce-body">${esc(a.body)}</div>
+      </div>`).join("") : `<div class="empty"><span class="serif">Nothing posted yet</span></div>`}
+  `;
+}
+function showAnnouncementForm(){
+  openModal(`
+    <h3>Post announcement</h3>
+    <label class="field-label">Title</label>
+    <input class="text-input" id="f-ntitle" placeholder="e.g. School closed on Monday">
+    <label class="field-label">Message</label>
+    <textarea class="text-input" id="f-nbody" rows="4" placeholder="Write the details here"></textarea>
+    <div class="modal-actions"><button class="btn" onclick="closeModal()">Cancel</button><button class="btn btn-gold" onclick="saveAnnouncement()">Post</button></div>
+  `);
+}
+async function saveAnnouncement(){
+  const title = document.getElementById("f-ntitle").value.trim();
+  const body = document.getElementById("f-nbody").value.trim();
+  if(!title || !body) return;
+  await sb.from("announcements").insert({ title, body });
+  closeModal(); render();
+}
+async function deleteAnnouncement(id){
+  await sb.from("announcements").delete().eq("id", id);
+  render();
+}
+
+/* ---------------- Settings ---------------- */
+async function renderSettings(){
+  if(PROFILE.role !== "admin") return `<div class="empty">Only admins can change settings.</div>`;
+  return `
+    <div class="section-head"><h2>Settings</h2></div>
+    <div class="panel">
+      <h3>School branding</h3>
+      <label class="field-label">School name</label>
+      <input class="text-input" id="set-name" value="${esc(SCHOOL.name)}">
+      <label class="field-label">Tagline</label>
+      <input class="text-input" id="set-tag" value="${esc(SCHOOL.tagline)}">
+      <button class="btn btn-gold" style="margin-top:18px;" onclick="saveBranding()">Save changes</button>
+      <span id="set-saved" style="margin-left:12px; font-size:13px; color:var(--green); display:none;">Saved</span>
+    </div>
+  `;
+}
+async function saveBranding(){
+  const name = document.getElementById("set-name").value.trim() || "Campus Register";
+  const tagline = document.getElementById("set-tag").value.trim() || "School Workspace";
+  await sb.from("school_settings").upsert({ id:1, name, tagline });
+  SCHOOL = { name, tagline };
+  document.getElementById("side-school-name").textContent = name;
+  document.getElementById("set-saved").style.display = "inline";
+  setTimeout(()=>{ const el=document.getElementById("set-saved"); if(el) el.style.display="none"; }, 2000);
+}
+
+/* ---------------- Page-specific event wiring ---------------- */
+function attachPageHandlers(){
+  const attClass = document.getElementById("att-class");
+  if(attClass) attClass.addEventListener("change", e=>{ window.__attClass = e.target.value; render(); });
+  const attDate = document.getElementById("att-date");
+  if(attDate) attDate.addEventListener("change", e=>{ window.__attDate = e.target.value; render(); });
+  const gbClass = document.getElementById("gb-class");
+  if(gbClass) gbClass.addEventListener("change", e=>{ window.__gbClass = e.target.value; render(); });
+}
+
+/* ---------------- Boot ---------------- */
+(async function init(){
+  await loadSchoolSettings();
+  await refreshSignupClasses();
+  const { data } = await sb.auth.getSession();
+  if(data.session){
+    SESSION = data.session;
+    const { data: prof } = await sb.from("profiles").select("*").eq("id", data.session.user.id).maybeSingle();
+    PROFILE = prof;
+    if(PROFILE && PROFILE.role==="teacher" && PROFILE.approved===false){
+      showPendingScreen();
+    } else if(PROFILE){
+      enterApp();
+    } else {
+      showLogin();
+    }
+  } else {
+    showLogin();
+  }
+})();
+</script>
+</body>
+</html>
