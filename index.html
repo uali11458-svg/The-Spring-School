@@ -119,6 +119,19 @@
 
   .center-loading{ min-height:100vh; display:flex; align-items:center; justify-content:center; color:var(--text-muted); font-size:14px; }
 
+  .lesson-card{ margin-bottom:22px; }
+  .lesson-card h3{ margin-bottom:10px; }
+  .video-wrap{ position:relative; width:100%; padding-top:56.25%; border-radius:8px; overflow:hidden; background:#000; }
+  .video-wrap iframe{ position:absolute; inset:0; width:100%; height:100%; border:none; }
+
+  .qbuilder-row{ border:1px solid var(--line); border-radius:8px; padding:14px; margin-bottom:12px; background:#fdfcf9; }
+  .qbuilder-row .form-row > div{ min-width:120px; }
+  .quiz-take-q{ border-bottom:1px solid var(--line); padding:16px 0; }
+  .quiz-take-q:last-child{ border-bottom:none; }
+  .quiz-opt{ display:flex; align-items:center; gap:8px; padding:6px 0; font-size:14px; }
+  .quiz-opt.correct{ color:var(--green); font-weight:500; }
+  .quiz-opt.wrong-pick{ color:var(--red); font-weight:500; }
+
   @media (max-width:800px){
     .sidebar{ display:none; }
     .content{ padding:20px; }
@@ -383,9 +396,9 @@ function enterApp(){
 
 /* ---------------- Nav ---------------- */
 const NAV_BY_ROLE = {
-  admin:[["dashboard","Dashboard"],["classes","Classes"],["teachers","Teachers"],["students","Students"],["assignments","Assignments"],["attendance","Attendance"],["gradebook","Gradebook"],["announcements","Announcements"],["settings","Settings"]],
-  teacher:[["dashboard","Dashboard"],["classes","Classes"],["assignments","Assignments"],["attendance","Attendance"],["gradebook","Gradebook"],["announcements","Announcements"]],
-  student:[["dashboard","Dashboard"],["assignments","Assignments"],["gradebook","My grades"],["announcements","Announcements"]]
+  admin:[["dashboard","Dashboard"],["classes","Classes"],["teachers","Teachers"],["students","Students"],["lessons","Lessons"],["quizzes","Quizzes"],["assignments","Assignments"],["attendance","Attendance"],["gradebook","Gradebook"],["announcements","Announcements"],["settings","Settings"]],
+  teacher:[["dashboard","Dashboard"],["classes","Classes"],["lessons","Lessons"],["quizzes","Quizzes"],["assignments","Assignments"],["attendance","Attendance"],["gradebook","Gradebook"],["announcements","Announcements"]],
+  student:[["dashboard","Dashboard"],["lessons","Lessons"],["quizzes","Quizzes"],["assignments","Assignments"],["gradebook","My grades"],["announcements","Announcements"]]
 };
 function buildNav(){
   const nav = document.getElementById("nav-items");
@@ -401,7 +414,7 @@ function buildNav(){
 function navigate(page){
   ACTIVE_PAGE = page;
   buildNav();
-  const titles = {dashboard:"Dashboard", classes:"Classes", teachers:"Teachers", students:"Students", assignments:"Assignments", attendance:"Attendance", gradebook: PROFILE.role==="student"?"My grades":"Gradebook", announcements:"Announcements", settings:"Settings"};
+  const titles = {dashboard:"Dashboard", classes:"Classes", teachers:"Teachers", students:"Students", lessons:"Lessons", quizzes:"Quizzes", assignments:"Assignments", attendance:"Attendance", gradebook: PROFILE.role==="student"?"My grades":"Gradebook", announcements:"Announcements", settings:"Settings"};
   document.getElementById("page-title").textContent = titles[page] || "Dashboard";
   render();
 }
@@ -417,6 +430,8 @@ async function render(){
   if(ACTIVE_PAGE==="dashboard") c.innerHTML = await renderDashboard();
   else if(ACTIVE_PAGE==="classes") c.innerHTML = await renderClasses();
   else if(ACTIVE_PAGE==="teachers") c.innerHTML = await renderTeachers();
+  else if(ACTIVE_PAGE==="lessons") c.innerHTML = await renderLessons();
+  else if(ACTIVE_PAGE==="quizzes") c.innerHTML = await renderQuizzes();
   else if(ACTIVE_PAGE==="students") c.innerHTML = await renderStudents();
   else if(ACTIVE_PAGE==="assignments") c.innerHTML = await renderAssignments();
   else if(ACTIVE_PAGE==="attendance") c.innerHTML = await renderAttendance();
@@ -539,6 +554,262 @@ async function deleteClass(id){
   if(!confirm("Remove this class?")) return;
   await sb.from("classes").delete().eq("id", id);
   render();
+}
+
+/* ---------------- Video Lessons ---------------- */
+function ytEmbedUrl(url){
+  if(!url) return null;
+  let id = null;
+  let m = url.match(/(?:youtu\.be\/|youtube\.com\/(?:watch\?v=|embed\/|shorts\/))([a-zA-Z0-9_-]{6,})/);
+  if(m) id = m[1];
+  if(!id) return null;
+  return "https://www.youtube.com/embed/" + id;
+}
+
+async function renderLessons(){
+  if(PROFILE.role==="student"){
+    const { data: list } = await sb.from("lessons").select("*").eq("class_id", PROFILE.class_id).order("created_at",{ascending:false});
+    return `
+      <div class="section-head"><h2>Lessons</h2><span class="count">${(list||[]).length} total</span></div>
+      ${(list||[]).length ? list.map(l=>lessonCardHtml(l)).join("") : `<div class="empty"><span class="serif">No lessons posted yet</span></div>`}
+    `;
+  }
+  const classes = await myClasses();
+  window.__classesCache = classes;
+  const classIds = classes.map(c=>c.id);
+  const safeIds = classIds.length ? classIds : ["00000000-0000-0000-0000-000000000000"];
+  const { data: list } = await sb.from("lessons").select("*, class:classes(name)").in("class_id", safeIds).order("created_at",{ascending:false});
+  return `
+    <div class="section-head">
+      <h2>Lessons</h2>
+      ${classes.length ? `<button class="btn btn-gold" onclick="showLessonForm()">+ Add video lesson</button>` : ``}
+    </div>
+    ${(list||[]).length ? list.map(l=>lessonCardHtml(l, true)).join("") : `<div class="empty"><span class="serif">No lessons yet</span>Paste a YouTube link to add your first one.</div>`}
+  `;
+}
+function lessonCardHtml(l, staff){
+  const embed = ytEmbedUrl(l.youtube_url);
+  return `
+    <div class="panel lesson-card">
+      <div style="display:flex; justify-content:space-between; align-items:baseline;">
+        <h3>${esc(l.title)}${l.class?.name ? ` <span style="font-size:12px; color:var(--text-muted); font-weight:400;">(${esc(l.class.name)})</span>` : ""}</h3>
+        ${staff ? `<button class="btn btn-sm btn-danger" onclick="deleteLesson('${l.id}')">Delete</button>` : ""}
+      </div>
+      ${embed ? `<div class="video-wrap"><iframe src="${embed}" allowfullscreen></iframe></div>` : `<div class="empty">Couldn't read this YouTube link.</div>`}
+    </div>
+  `;
+}
+function showLessonForm(){
+  const classes = window.__classesCache || [];
+  openModal(`
+    <h3>Add video lesson</h3>
+    <label class="field-label">Title</label>
+    <input class="text-input" id="f-ltitle" placeholder="e.g. Photosynthesis explained">
+    <label class="field-label">Class</label>
+    <select class="text-input" id="f-lclass">${classes.map(c=>`<option value="${c.id}">${esc(c.name)}</option>`).join("")}</select>
+    <label class="field-label">YouTube link</label>
+    <input class="text-input" id="f-lurl" placeholder="https://www.youtube.com/watch?v=...">
+    <div class="modal-actions"><button class="btn" onclick="closeModal()">Cancel</button><button class="btn btn-gold" onclick="saveLesson()">Save lesson</button></div>
+  `);
+}
+async function saveLesson(){
+  const title = document.getElementById("f-ltitle").value.trim();
+  const classId = document.getElementById("f-lclass").value;
+  const url = document.getElementById("f-lurl").value.trim();
+  if(!title || !classId || !url) return;
+  if(!ytEmbedUrl(url)){ alert("That doesn't look like a valid YouTube link."); return; }
+  const { error } = await sb.from("lessons").insert({ title, class_id:classId, youtube_url:url });
+  if(error){ alert(error.message); return; }
+  closeModal(); render();
+}
+async function deleteLesson(id){
+  if(!confirm("Delete this lesson?")) return;
+  await sb.from("lessons").delete().eq("id", id);
+  render();
+}
+
+/* ---------------- Quizzes ---------------- */
+async function renderQuizzes(){
+  if(PROFILE.role==="student"){
+    const { data: quizzes } = await sb.from("quizzes").select("*").eq("class_id", PROFILE.class_id).order("created_at",{ascending:false});
+    const { data: attempts } = await sb.from("quiz_attempts").select("*").eq("student_id", PROFILE.id);
+    const attemptMap = {}; (attempts||[]).forEach(a=>attemptMap[a.quiz_id]=a);
+    return `
+      <div class="section-head"><h2>Quizzes</h2><span class="count">${(quizzes||[]).length} total</span></div>
+      ${(quizzes||[]).length ? `
+      <table><tr><th>Quiz</th><th>Status</th><th></th></tr>
+      ${quizzes.map(q=>{
+        const at = attemptMap[q.id];
+        return `<tr><td>${esc(q.title)}</td>
+          <td>${at ? `<span class="pill" style="background:var(--green-bg); color:var(--green);">${at.score} / ${at.total}</span>` : `<span class="pill pill-amber">Not attempted</span>`}</td>
+          <td style="text-align:right;"><button class="btn btn-sm" onclick="openQuiz('${q.id}')">${at?"Review":"Take quiz"}</button></td>
+        </tr>`;
+      }).join("")}
+      </table>` : `<div class="empty"><span class="serif">No quizzes yet</span></div>`}
+    `;
+  }
+  const classes = await myClasses();
+  window.__classesCache = classes;
+  const classIds = classes.map(c=>c.id);
+  const safeIds = classIds.length ? classIds : ["00000000-0000-0000-0000-000000000000"];
+  const { data: quizzes } = await sb.from("quizzes").select("*, class:classes(name)").in("class_id", safeIds).order("created_at",{ascending:false});
+  return `
+    <div class="section-head">
+      <h2>Quizzes</h2>
+      ${classes.length ? `<button class="btn btn-gold" onclick="showQuizBuilder()">+ New quiz</button>` : ``}
+    </div>
+    ${(quizzes||[]).length ? `
+    <table><tr><th>Quiz</th><th>Class</th><th></th></tr>
+    ${quizzes.map(q=>`<tr><td>${esc(q.title)}</td><td>${esc(q.class?.name||"—")}</td>
+      <td style="text-align:right;">
+        <button class="btn btn-sm" onclick="viewQuizResults('${q.id}','${esc(q.title)}')">Results</button>
+        <button class="btn btn-sm btn-danger" onclick="deleteQuiz('${q.id}')" style="margin-left:6px;">Delete</button>
+      </td></tr>`).join("")}
+    </table>` : `<div class="empty"><span class="serif">No quizzes yet</span></div>`}
+  `;
+}
+
+let quizDraftQuestions = [];
+function showQuizBuilder(){
+  quizDraftQuestions = [{ question:"", a:"", b:"", c:"", d:"", correct:"a" }];
+  const classes = window.__classesCache || [];
+  openModal(`
+    <h3>New quiz</h3>
+    <label class="field-label">Quiz title</label>
+    <input class="text-input" id="f-qtitle" placeholder="e.g. Chapter 3 Quiz">
+    <label class="field-label">Class</label>
+    <select class="text-input" id="f-qclass">${classes.map(c=>`<option value="${c.id}">${esc(c.name)}</option>`).join("")}</select>
+    <div id="qbuilder-questions" style="margin-top:16px;"></div>
+    <button class="btn" onclick="addQuizQuestionRow()">+ Add question</button>
+    <div class="modal-actions"><button class="btn" onclick="closeModal()">Cancel</button><button class="btn btn-gold" onclick="saveQuiz()">Save quiz</button></div>
+  `);
+  renderQuizBuilderRows();
+}
+function renderQuizBuilderRows(){
+  const wrap = document.getElementById("qbuilder-questions");
+  wrap.innerHTML = quizDraftQuestions.map((q,i)=>`
+    <div class="qbuilder-row">
+      <div style="display:flex; justify-content:space-between;"><strong style="font-size:13px;">Question ${i+1}</strong>
+        ${quizDraftQuestions.length>1 ? `<button class="btn btn-sm btn-danger" onclick="removeQuizQuestionRow(${i})">Remove</button>` : ""}
+      </div>
+      <input class="text-input" style="margin-top:8px;" placeholder="Question text" value="${esc(q.question)}" oninput="quizDraftQuestions[${i}].question=this.value">
+      <div class="form-row" style="margin-top:8px;">
+        <div><input class="text-input" placeholder="Option A" value="${esc(q.a)}" oninput="quizDraftQuestions[${i}].a=this.value"></div>
+        <div><input class="text-input" placeholder="Option B" value="${esc(q.b)}" oninput="quizDraftQuestions[${i}].b=this.value"></div>
+      </div>
+      <div class="form-row">
+        <div><input class="text-input" placeholder="Option C" value="${esc(q.c)}" oninput="quizDraftQuestions[${i}].c=this.value"></div>
+        <div><input class="text-input" placeholder="Option D" value="${esc(q.d)}" oninput="quizDraftQuestions[${i}].d=this.value"></div>
+      </div>
+      <label class="field-label">Correct answer</label>
+      <select class="text-input" onchange="quizDraftQuestions[${i}].correct=this.value">
+        ${["a","b","c","d"].map(o=>`<option value="${o}" ${q.correct===o?"selected":""}>Option ${o.toUpperCase()}</option>`).join("")}
+      </select>
+    </div>
+  `).join("");
+}
+function addQuizQuestionRow(){
+  quizDraftQuestions.push({ question:"", a:"", b:"", c:"", d:"", correct:"a" });
+  renderQuizBuilderRows();
+}
+function removeQuizQuestionRow(i){
+  quizDraftQuestions.splice(i,1);
+  renderQuizBuilderRows();
+}
+async function saveQuiz(){
+  const title = document.getElementById("f-qtitle").value.trim();
+  const classId = document.getElementById("f-qclass").value;
+  if(!title || !classId) return;
+  const valid = quizDraftQuestions.filter(q=>q.question.trim() && q.a.trim() && q.b.trim() && q.c.trim() && q.d.trim());
+  if(!valid.length){ alert("Add at least one complete question (with all 4 options)."); return; }
+
+  const { data: quiz, error } = await sb.from("quizzes").insert({ title, class_id:classId }).select().single();
+  if(error){ alert(error.message); return; }
+  const rows = valid.map((q,i)=>({
+    quiz_id: quiz.id, question:q.question.trim(),
+    option_a:q.a.trim(), option_b:q.b.trim(), option_c:q.c.trim(), option_d:q.d.trim(),
+    correct_option:q.correct, position:i
+  }));
+  const { error: qErr } = await sb.from("quiz_questions").insert(rows);
+  if(qErr){ alert(qErr.message); return; }
+  closeModal(); render();
+}
+async function deleteQuiz(id){
+  if(!confirm("Delete this quiz and all its results?")) return;
+  await sb.from("quizzes").delete().eq("id", id);
+  render();
+}
+
+async function openQuiz(quizId){
+  const { data: quiz } = await sb.from("quizzes").select("*").eq("id", quizId).maybeSingle();
+  const { data: questions } = await sb.from("quiz_questions").select("*").eq("quiz_id", quizId).order("position");
+  const { data: existing } = await sb.from("quiz_attempts").select("*").eq("quiz_id", quizId).eq("student_id", PROFILE.id).maybeSingle();
+
+  if(existing){
+    // Review mode — show questions with correct answers marked (their own picks aren't stored individually, so show correct answers + their score)
+    openModal(`
+      <h3>${esc(quiz.title)} — Result</h3>
+      <p style="font-size:15px; margin-bottom:16px;">You scored <strong>${existing.score} / ${existing.total}</strong></p>
+      ${(questions||[]).map((q,i)=>`
+        <div class="quiz-take-q">
+          <div style="font-size:14px; margin-bottom:8px;"><strong>${i+1}.</strong> ${esc(q.question)}</div>
+          ${["a","b","c","d"].map(o=>`<div class="quiz-opt ${o===q.correct_option?'correct':''}">${o===q.correct_option?"✓ ":"○ "}${esc(q["option_"+o])}</div>`).join("")}
+        </div>
+      `).join("")}
+      <div class="modal-actions"><button class="btn btn-gold" onclick="closeModal()">Close</button></div>
+    `);
+    return;
+  }
+
+  openModal(`
+    <h3>${esc(quiz.title)}</h3>
+    <div id="quiz-take-body" data-quiz="${quizId}" data-total="${(questions||[]).length}">
+      ${(questions||[]).map((q,i)=>`
+        <div class="quiz-take-q">
+          <div style="font-size:14px; margin-bottom:8px;"><strong>${i+1}.</strong> ${esc(q.question)}</div>
+          ${["a","b","c","d"].map(o=>`
+            <label class="quiz-opt" style="cursor:pointer;">
+              <input type="radio" name="q_${q.id}" value="${o}" data-correct="${q.correct_option}">
+              ${esc(q["option_"+o])}
+            </label>
+          `).join("")}
+        </div>
+      `).join("")}
+    </div>
+    <div class="modal-actions"><button class="btn" onclick="closeModal()">Cancel</button><button class="btn btn-gold" onclick="submitQuiz()">Submit quiz</button></div>
+  `);
+}
+async function submitQuiz(){
+  const body = document.getElementById("quiz-take-body");
+  const quizId = body.dataset.quiz;
+  const total = parseInt(body.dataset.total);
+  const groups = {};
+  body.querySelectorAll("input[type=radio]").forEach(inp=>{
+    if(!groups[inp.name]) groups[inp.name] = [];
+    groups[inp.name].push(inp);
+  });
+  let score = 0;
+  Object.values(groups).forEach(inputs=>{
+    const checked = inputs.find(i=>i.checked);
+    if(checked && checked.value === checked.dataset.correct) score++;
+  });
+  const { error } = await sb.from("quiz_attempts").insert({ quiz_id:quizId, student_id:PROFILE.id, score, total });
+  if(error){ alert(error.message); return; }
+  closeModal();
+  render();
+  setTimeout(()=>alert(`Quiz submitted! You scored ${score} / ${total}.`), 100);
+}
+
+async function viewQuizResults(quizId, title){
+  const { data: attempts } = await sb.from("quiz_attempts").select("*, student:profiles(full_name)").eq("quiz_id", quizId).order("score",{ascending:false});
+  openModal(`
+    <h3>Results — ${esc(title)}</h3>
+    ${(attempts||[]).length ? `
+    <table><tr><th>Student</th><th>Score</th></tr>
+    ${attempts.map(a=>`<tr><td>${esc(a.student?.full_name||"—")}</td><td>${a.score} / ${a.total}</td></tr>`).join("")}
+    </table>` : `<div class="empty">No attempts yet.</div>`}
+    <div class="modal-actions"><button class="btn btn-gold" onclick="closeModal()">Close</button></div>
+  `);
 }
 
 /* ---------------- Teachers (admin approval) ---------------- */
