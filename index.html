@@ -1003,8 +1003,9 @@ async function renderAssignments(){
     return `
       <div class="section-head"><h2>Assignments</h2><span class="count">${(list||[]).length} total</span></div>
       ${(list||[]).length ? `
-      <table><tr><th>Assignment</th><th>Class</th><th>Due</th><th>Max marks</th><th>Your score</th></tr>
+      <table><tr><th>Assignment</th><th>Class</th><th>Due</th><th>Max marks</th><th>PDF</th><th>Your score</th></tr>
       ${list.map(a=>`<tr><td>${esc(a.title)}</td><td>${esc(a.class?.name||"—")}</td><td>${fmtDate(a.due)}</td><td>${a.max_marks}</td>
+        <td>${a.pdf_url ? `<a href="${a.pdf_url}" target="_blank" rel="noopener" style="color:var(--gold-dark); text-decoration:underline;">Download</a>` : "—"}</td>
         <td>${markMap[a.id]!=null ? markMap[a.id]+" / "+a.max_marks : `<span class="pill pill-amber">Pending</span>`}</td></tr>`).join("")}
       </table>` : `<div class="empty"><span class="serif">Nothing assigned yet</span></div>`}
     `;
@@ -1022,8 +1023,9 @@ async function renderAssignments(){
       ${classes.length ? `<button class="btn btn-gold" onclick="showAssignmentForm()">+ New assignment</button>` : ``}
     </div>
     ${(list||[]).length ? `
-    <table><tr><th>Assignment</th><th>Class</th><th>Due</th><th>Max marks</th><th></th></tr>
+    <table><tr><th>Assignment</th><th>Class</th><th>Due</th><th>Max marks</th><th>PDF</th><th></th></tr>
     ${list.map(a=>`<tr><td>${esc(a.title)}</td><td>${esc(a.class?.name||"—")}</td><td>${fmtDate(a.due)}</td><td>${a.max_marks}</td>
+      <td>${a.pdf_url ? `<a href="${a.pdf_url}" target="_blank" rel="noopener" style="color:var(--gold-dark); text-decoration:underline;">${esc(a.pdf_name||"Download")}</a>` : "—"}</td>
       <td style="text-align:right;"><button class="btn btn-sm" onclick="openGrading('${a.id}','${esc(a.title)}',${a.max_marks},'${a.class_id}')">Grade</button>
       <button class="btn btn-sm btn-danger" onclick="deleteAssignment('${a.id}')" style="margin-left:6px;">Delete</button></td></tr>`).join("")}
     </table>` : `<div class="empty"><span class="serif">No assignments yet</span></div>`}
@@ -1041,7 +1043,10 @@ function showAssignmentForm(){
       <div><label class="field-label">Due date</label><input type="date" class="text-input" id="f-adue" value="${todayStr()}"></div>
       <div><label class="field-label">Max marks</label><input type="number" class="text-input" id="f-amax" value="20"></div>
     </div>
-    <div class="modal-actions"><button class="btn" onclick="closeModal()">Cancel</button><button class="btn btn-gold" onclick="saveAssignment()">Save assignment</button></div>
+    <label class="field-label">Attach PDF (optional — worksheet, homework sheet, etc.)</label>
+    <input type="file" class="text-input" id="f-apdf" accept="application/pdf">
+    <div id="apdf-status" style="font-size:12px; color:var(--text-muted); margin-top:6px;"></div>
+    <div class="modal-actions"><button class="btn" onclick="closeModal()">Cancel</button><button class="btn btn-gold" id="save-assignment-btn" onclick="saveAssignment()">Save assignment</button></div>
   `);
 }
 async function saveAssignment(){
@@ -1049,8 +1054,26 @@ async function saveAssignment(){
   const classId = document.getElementById("f-aclass").value;
   const due = document.getElementById("f-adue").value || todayStr();
   const maxMarks = parseInt(document.getElementById("f-amax").value) || 20;
+  const fileInput = document.getElementById("f-apdf");
+  const file = fileInput.files[0];
   if(!title || !classId) return;
-  await sb.from("assignments").insert({ title, class_id:classId, due, max_marks:maxMarks });
+
+  let pdf_url = null, pdf_name = null;
+  if(file){
+    if(file.type !== "application/pdf"){ alert("Please choose a PDF file."); return; }
+    const statusEl = document.getElementById("apdf-status");
+    const btn = document.getElementById("save-assignment-btn");
+    statusEl.textContent = "Uploading PDF…"; btn.disabled = true;
+    const path = `${Date.now()}_${file.name.replace(/[^a-zA-Z0-9._-]/g,"_")}`;
+    const { error: upErr } = await sb.storage.from("homework").upload(path, file);
+    btn.disabled = false;
+    if(upErr){ statusEl.textContent = ""; alert("Could not upload PDF: " + upErr.message); return; }
+    const { data: pub } = sb.storage.from("homework").getPublicUrl(path);
+    pdf_url = pub.publicUrl; pdf_name = file.name;
+  }
+
+  const { error } = await sb.from("assignments").insert({ title, class_id:classId, due, max_marks:maxMarks, pdf_url, pdf_name });
+  if(error){ alert(error.message); return; }
   closeModal(); render();
 }
 async function deleteAssignment(id){
