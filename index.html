@@ -65,14 +65,15 @@
   .sidebar-foot{ padding:16px 22px 0; border-top:1px solid rgba(255,255,255,0.10); margin-top:12px; }
   .who{ font-size:13.5px; color:#fff; font-weight:500; }
   .who-role{ font-size:10.5px; color:var(--gold); text-transform:uppercase; letter-spacing:.8px; margin-top:3px; }
-  .logout-link{ display:inline-block; margin-top:11px; font-size:12px; color:#9C9788; background:none; border:none; padding:0; }
+  .foot-actions{ display:flex; flex-direction:column; gap:9px; margin-top:13px; }
+  .logout-link{ display:block; width:fit-content; font-size:12.5px; color:#E7C766; background:none; border:none; padding:0; text-align:left; }
   .logout-link:hover{ color:#fff; text-decoration:underline; }
 
   .main{ flex:1; min-width:0; position:relative; }
   .topbar{ display:flex; align-items:center; justify-content:space-between; padding:22px 40px; border-bottom:1px solid var(--line); background:var(--paper); }
   .topbar-title{ font-size:23px; color:var(--ink); letter-spacing:.2px; }
   .topbar-date{ font-size:12.5px; color:var(--text-faint); }
-  .content{ padding:34px 40px 70px; max-width:1060px; }
+  .content{ padding:34px 40px 70px; max-width:1060px; margin:0 auto; }
 
   .section-head{ display:flex; align-items:center; justify-content:space-between; padding-bottom:16px; margin-bottom:24px; border-bottom:1px solid var(--line); }
   .section-head h2{ font-size:20px; color:var(--ink); margin:0; }
@@ -158,19 +159,24 @@
     .sidebar.mobile-open{ transform:translateX(0); }
     .sidebar-close-btn{ display:block; }
     .hamburger-btn{ display:block; }
-    .content{ padding:20px 18px 60px; }
-    .topbar{ padding:16px 18px; }
-    .topbar-title{ font-size:19px; }
+    .content{ padding:20px 16px 60px; }
+    .topbar{ padding:16px 16px; }
+    .topbar-title{ font-size:20px; }
     .topbar-date{ display:none; }
     .grid-stats{ grid-template-columns:repeat(2,1fr); gap:12px; }
     .stat{ padding:14px 15px; }
-    .stat-value{ font-size:22px; }
-    .panel{ padding:18px 18px; }
+    .stat-value{ font-size:24px; }
+    .panel{ padding:18px 16px; }
     .login-card{ padding:32px 24px 28px; max-width:400px; }
-    .modal{ max-width:94vw; padding:22px 20px 18px; }
-    .modal-bg{ padding-top:24px; padding-left:12px; padding-right:12px; align-items:flex-start; }
-    table{ min-width:560px; }
+    .modal{ max-width:94vw; padding:22px 18px 18px; }
+    .modal-bg{ padding-top:24px; padding-left:10px; padding-right:10px; align-items:flex-start; }
     .section-head{ flex-wrap:wrap; gap:10px; }
+    /* Inputs must be 16px+ or iOS Safari auto-zooms the whole page on focus, which is what makes everything feel tiny */
+    .text-input, select.text-input, textarea.text-input{ font-size:16px; padding:12px 13px; }
+    .btn, .btn-sm{ padding:9px 14px; font-size:13.5px; }
+    .btn-sm{ padding:7px 12px; }
+    .nav-item{ padding:12px 22px; font-size:14.5px; }
+    table{ min-width:560px; }
   }
   @media (max-width:420px){
     .grid-stats{ grid-template-columns:1fr; }
@@ -243,8 +249,10 @@
     <div class="sidebar-foot">
       <div class="who" id="who-name">—</div>
       <div class="who-role" id="who-role">—</div>
-      <button class="logout-link" id="change-pass-btn" onclick="showChangePasswordForm()">Change password</button><br>
-      <button class="logout-link" id="logout-btn">Sign out</button>
+      <div class="foot-actions">
+        <button class="logout-link" id="change-pass-btn" onclick="showChangePasswordForm()">Change password</button>
+        <button class="logout-link" id="logout-btn">Sign out</button>
+      </div>
     </div>
   </div>
   <div class="main">
