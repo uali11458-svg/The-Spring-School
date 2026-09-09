@@ -149,8 +149,8 @@
     <p class="login-sub" id="login-sub-text">Sign in to your school workspace</p>
 
     <form id="signin-form">
-      <label class="field-label">Email</label>
-      <input class="text-input" type="email" id="si-email" required placeholder="name@school.edu">
+      <label class="field-label">Email (staff) or Roll No (students)</label>
+      <input class="text-input" type="text" id="si-email" required placeholder="name@school.edu or your roll number">
       <label class="field-label">Password</label>
       <input class="text-input" type="password" id="si-password" required placeholder="••••••••">
       <div id="si-error" class="error-text" style="display:none;"></div>
@@ -163,7 +163,6 @@
       <label class="field-label">Role</label>
       <select class="text-input" id="su-role">
         <option value="teacher">Teacher</option>
-        <option value="student">Student</option>
       </select>
       <div id="su-class-wrap" style="display:none;">
         <label class="field-label">Class</label>
@@ -173,6 +172,10 @@
       <input class="text-input" type="email" id="su-email" required placeholder="name@school.edu">
       <label class="field-label">Password</label>
       <input class="text-input" type="password" id="su-password" required minlength="6" placeholder="At least 6 characters">
+      <div id="su-code-wrap">
+        <label class="field-label">School access code</label>
+        <input class="text-input" id="su-code" placeholder="Ask your school admin for this">
+      </div>
       <div id="su-error" class="error-text" style="display:none;"></div>
       <button class="btn-primary" type="submit" id="su-btn">Create account</button>
     </form>
@@ -200,6 +203,7 @@
     <div class="sidebar-foot">
       <div class="who" id="who-name">—</div>
       <div class="who-role" id="who-role">—</div>
+      <button class="logout-link" id="change-pass-btn" onclick="showChangePasswordForm()">Change password</button><br>
       <button class="logout-link" id="logout-btn">Sign out</button>
     </div>
   </div>
@@ -266,11 +270,13 @@ async function refreshAdminOption(){
   if(ADMIN_EXISTS){
     if(adminOpt) adminOpt.remove();
     if(roleSel.value === "admin") roleSel.value = "teacher";
+    document.getElementById("su-code-wrap").style.display = "block";
   } else if(!adminOpt){
     const opt = document.createElement("option");
     opt.value = "admin"; opt.textContent = "Admin (first account — sets up the school)";
     roleSel.insertBefore(opt, roleSel.firstChild);
     roleSel.value = "admin";
+    document.getElementById("su-code-wrap").style.display = "none";
   }
 }
 
@@ -280,9 +286,15 @@ async function refreshSignupClasses(){
   sel.innerHTML = (data||[]).length ? data.map(c=>`<option value="${c.id}">${esc(c.name)}</option>`).join("") : `<option value="">No classes yet — ask admin</option>`;
 }
 
+const STUDENT_EMAIL_DOMAIN = "students.schoolapp.local";
+function rollNoToEmail(roll){
+  return "roll" + String(roll).trim().toLowerCase().replace(/[^a-z0-9]/g,"") + "@" + STUDENT_EMAIL_DOMAIN;
+}
+
 document.getElementById("signin-form").addEventListener("submit", async e=>{
   e.preventDefault();
-  const email = document.getElementById("si-email").value.trim();
+  const raw = document.getElementById("si-email").value.trim();
+  const email = raw.includes("@") ? raw : rollNoToEmail(raw);
   const password = document.getElementById("si-password").value;
   const errBox = document.getElementById("si-error");
   errBox.style.display="none";
@@ -301,8 +313,25 @@ document.getElementById("signup-form").addEventListener("submit", async e=>{
   const classId = document.getElementById("su-class").value;
   const email = document.getElementById("su-email").value.trim();
   const password = document.getElementById("su-password").value;
+  const enteredCode = document.getElementById("su-code").value.trim();
   const errBox = document.getElementById("su-error");
   errBox.style.display="none";
+
+  if(ADMIN_EXISTS){
+    const { data: s } = await sb.from("school_settings").select("access_code").eq("id",1).maybeSingle();
+    const realCode = (s?.access_code || "").trim();
+    if(!realCode){
+      errBox.textContent = "Sign-ups are closed right now — ask your school admin to set an access code first.";
+      errBox.style.display="block";
+      return;
+    }
+    if(enteredCode.toLowerCase() !== realCode.toLowerCase()){
+      errBox.textContent = "That access code doesn't match. Ask your school admin for the correct code.";
+      errBox.style.display="block";
+      return;
+    }
+  }
+
   document.getElementById("su-btn").disabled = true;
   document.getElementById("su-btn").textContent = "Creating account…";
 
@@ -423,6 +452,33 @@ function navigate(page){
 function openModal(html){ document.getElementById("modal-inner").innerHTML = html; document.getElementById("modal-bg").classList.add("open"); }
 function closeModal(){ document.getElementById("modal-bg").classList.remove("open"); }
 document.getElementById("modal-bg").addEventListener("click", e=>{ if(e.target.id==="modal-bg") closeModal(); });
+
+function showChangePasswordForm(){
+  openModal(`
+    <h3>Change password</h3>
+    <label class="field-label">New password</label>
+    <input class="text-input" type="password" id="cp-new" minlength="6" placeholder="At least 6 characters">
+    <label class="field-label">Confirm new password</label>
+    <input class="text-input" type="password" id="cp-confirm" minlength="6" placeholder="Re-type the new password">
+    <div id="cp-error" class="error-text" style="display:none;"></div>
+    <div class="modal-actions"><button class="btn" onclick="closeModal()">Cancel</button><button class="btn btn-gold" id="cp-btn" onclick="submitChangePassword()">Update password</button></div>
+  `);
+}
+async function submitChangePassword(){
+  const p1 = document.getElementById("cp-new").value;
+  const p2 = document.getElementById("cp-confirm").value;
+  const errBox = document.getElementById("cp-error");
+  errBox.style.display = "none";
+  if(p1.length < 6){ errBox.textContent = "Password must be at least 6 characters."; errBox.style.display="block"; return; }
+  if(p1 !== p2){ errBox.textContent = "Passwords don't match."; errBox.style.display="block"; return; }
+  const btn = document.getElementById("cp-btn");
+  btn.disabled = true; btn.textContent = "Updating…";
+  const { error } = await sb.auth.updateUser({ password: p1 });
+  btn.disabled = false; btn.textContent = "Update password";
+  if(error){ errBox.textContent = error.message; errBox.style.display="block"; return; }
+  closeModal();
+  alert("Password updated.");
+}
 
 /* ---------------- Router ---------------- */
 async function render(){
@@ -971,27 +1027,107 @@ async function renderStudents(){
     return `<div class="empty"><span class="serif">Something went wrong loading this page</span>${esc((studErr||classErr).message)}</div>`;
   }
   return `
-    <div class="section-head"><h2>Students</h2><span class="count">${(students||[]).length} total</span></div>
-    ${(classes||[]).length===0 ? `<div class="panel" style="border-color:var(--amber); background:var(--amber-bg);"><strong>No classes exist yet.</strong> Go to <em>Classes</em> and create one first — then you'll be able to assign students to it here.</div>` : ``}
-    <p style="font-size:13px;color:var(--text-muted);margin-top:-4px;margin-bottom:18px;">Students appear here once they sign up and pick a class. You can reassign their class below.</p>
+    <div class="section-head">
+      <h2>Students</h2>
+      <button class="btn btn-gold" onclick="showAddStudentForm()">+ Add student</button>
+    </div>
+    ${(classes||[]).length===0 ? `<div class="panel" style="border-color:var(--amber); background:var(--amber-bg);"><strong>No classes exist yet.</strong> Go to <em>Classes</em> and create one first.</div>` : ``}
+    <p style="font-size:13px;color:var(--text-muted);margin-top:-4px;margin-bottom:18px;">You create every student account here — students log in with their roll number, not a public sign-up link.</p>
     ${(students||[]).length ? `
     <table>
-      <tr><th>Name</th><th>Class</th></tr>
+      <tr><th>Name</th><th>Roll No</th><th>Class</th><th></th></tr>
       ${students.map(s=>`
-        <tr><td>${esc(s.full_name)}</td><td>
-          <select class="text-input" style="max-width:220px;" onchange="changeStudentClass('${s.id}', this.value)">
+        <tr><td>${esc(s.full_name)}</td><td>${esc(s.roll_no||"—")}</td><td>
+          <select class="text-input" style="max-width:200px;" onchange="changeStudentClass('${s.id}', this.value)">
             <option value="">Unassigned</option>
             ${(classes||[]).map(c=>`<option value="${c.id}" ${s.class_id===c.id?'selected':''}>${esc(c.name)}</option>`).join("")}
           </select>
-        </td></tr>
+        </td>
+        <td style="text-align:right;"><button class="btn btn-sm btn-danger" onclick="removeStudent('${s.id}','${esc(s.full_name)}')">Remove</button></td>
+        </tr>
       `).join("")}
-    </table>` : `<div class="empty"><span class="serif">No students yet</span>Share the sign-up link with your students.</div>`}
+    </table>` : `<div class="empty"><span class="serif">No students yet</span>Add your first student above.</div>`}
   `;
 }
 async function changeStudentClass(studentId, classId){
   const { error } = await sb.from("profiles").update({ class_id: classId || null }).eq("id", studentId);
   if(error){ alert("Could not update class: " + error.message); }
   render();
+}
+async function removeStudent(id, name){
+  if(!confirm(`Remove ${name}'s student profile? They won't be able to use their account anymore (their login will still exist but be unusable in the app).`)) return;
+  const { error } = await sb.from("profiles").delete().eq("id", id);
+  if(error){ alert(error.message); return; }
+  render();
+}
+
+function showAddStudentForm(){
+  const classes = window.__classesCache || [];
+  openModal(`
+    <h3>Add student</h3>
+    <label class="field-label">Full name</label>
+    <input class="text-input" id="f-stname" placeholder="e.g. Ahmed Raza">
+    <label class="field-label">Roll number</label>
+    <input class="text-input" id="f-stroll" placeholder="e.g. 24">
+    <label class="field-label">Class</label>
+    <select class="text-input" id="f-stclass">${classes.map(c=>`<option value="${c.id}">${esc(c.name)}</option>`).join("")}</select>
+    <div id="stadd-error" class="error-text" style="display:none;"></div>
+    <div class="modal-actions"><button class="btn" onclick="closeModal()">Cancel</button><button class="btn btn-gold" id="stadd-btn" onclick="saveNewStudent()">Create account</button></div>
+  `);
+}
+async function saveNewStudent(){
+  const name = document.getElementById("f-stname").value.trim();
+  const roll = document.getElementById("f-stroll").value.trim();
+  const classId = document.getElementById("f-stclass").value;
+  const errBox = document.getElementById("stadd-error");
+  errBox.style.display = "none";
+  if(!name || !roll || !classId){ errBox.textContent = "Fill in name, roll number, and class."; errBox.style.display="block"; return; }
+
+  const { data: settings } = await sb.from("school_settings").select("default_student_password").eq("id",1).maybeSingle();
+  const defaultPass = (settings?.default_student_password || "").trim();
+  if(!defaultPass || defaultPass.length < 6){
+    errBox.textContent = "Set a default student password in Settings first (at least 6 characters).";
+    errBox.style.display = "block";
+    return;
+  }
+
+  const btn = document.getElementById("stadd-btn");
+  btn.disabled = true; btn.textContent = "Creating…";
+
+  // Use a separate, isolated Supabase client so this signUp doesn't overwrite the admin's own session.
+  const tempClient = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY, { auth: { persistSession: false, storageKey: "sb-temp-student-create" } });
+  const email = rollNoToEmail(roll);
+  const { data: signUpData, error: signUpErr } = await tempClient.auth.signUp({ email, password: defaultPass });
+
+  if(signUpErr){
+    btn.disabled = false; btn.textContent = "Create account";
+    errBox.textContent = signUpErr.message.includes("already registered") ? "This roll number is already in use." : signUpErr.message;
+    errBox.style.display = "block";
+    return;
+  }
+
+  const newId = signUpData.user?.id;
+  if(!newId){
+    btn.disabled = false; btn.textContent = "Create account";
+    errBox.textContent = "Could not create the account. Try again.";
+    errBox.style.display = "block";
+    return;
+  }
+
+  const { error: profErr } = await sb.from("profiles").insert({
+    id: newId, full_name: name, role: "student", class_id: classId, roll_no: roll, approved: true
+  });
+  await tempClient.auth.signOut();
+
+  btn.disabled = false; btn.textContent = "Create account";
+  if(profErr){
+    errBox.textContent = profErr.message;
+    errBox.style.display = "block";
+    return;
+  }
+  closeModal();
+  render();
+  setTimeout(()=>alert(`Account created.\n\nRoll No: ${roll}\nPassword: ${defaultPass}\n\nShare these with the student — they can change their password after logging in.`), 100);
 }
 
 /* ---------------- Assignments ---------------- */
@@ -1233,6 +1369,7 @@ async function deleteAnnouncement(id){
 /* ---------------- Settings ---------------- */
 async function renderSettings(){
   if(PROFILE.role !== "admin") return `<div class="empty">Only admins can change settings.</div>`;
+  const { data: s } = await sb.from("school_settings").select("*").eq("id",1).maybeSingle();
   return `
     <div class="section-head"><h2>Settings</h2></div>
     <div class="panel">
@@ -1244,7 +1381,36 @@ async function renderSettings(){
       <button class="btn btn-gold" style="margin-top:18px;" onclick="saveBranding()">Save changes</button>
       <span id="set-saved" style="margin-left:12px; font-size:13px; color:var(--green); display:none;">Saved</span>
     </div>
+    <div class="panel">
+      <h3>School access code</h3>
+      <p style="font-size:13px; color:var(--text-muted); margin-bottom:14px;">Teachers must enter this code when creating an account, so only staff from your school can sign up. Students don't self-signup — you create their accounts below. Share this code privately, not publicly.</p>
+      <label class="field-label">Access code</label>
+      <input class="text-input" id="set-code" value="${esc(s?.access_code||'')}" placeholder="e.g. SPRING2026">
+      <button class="btn btn-gold" style="margin-top:18px;" onclick="saveAccessCode()">Save code</button>
+      <span id="set-code-saved" style="margin-left:12px; font-size:13px; color:var(--green); display:none;">Saved</span>
+    </div>
+    <div class="panel">
+      <h3>Default student password</h3>
+      <p style="font-size:13px; color:var(--text-muted); margin-bottom:14px;">When you create a student account (from the Students page), this password is set automatically. Share it with students and tell them to change it after their first login.</p>
+      <label class="field-label">Default password</label>
+      <input class="text-input" id="set-stud-pass" value="${esc(s?.default_student_password||'')}" placeholder="e.g. Spring@123">
+      <button class="btn btn-gold" style="margin-top:18px;" onclick="saveDefaultStudentPassword()">Save password</button>
+      <span id="set-pass-saved" style="margin-left:12px; font-size:13px; color:var(--green); display:none;">Saved</span>
+    </div>
   `;
+}
+async function saveDefaultStudentPassword(){
+  const pass = document.getElementById("set-stud-pass").value.trim();
+  if(pass && pass.length < 6){ alert("Password should be at least 6 characters."); return; }
+  await sb.from("school_settings").upsert({ id:1, default_student_password: pass });
+  document.getElementById("set-pass-saved").style.display = "inline";
+  setTimeout(()=>{ const el=document.getElementById("set-pass-saved"); if(el) el.style.display="none"; }, 2000);
+}
+async function saveAccessCode(){
+  const code = document.getElementById("set-code").value.trim();
+  await sb.from("school_settings").upsert({ id:1, access_code: code });
+  document.getElementById("set-code-saved").style.display = "inline";
+  setTimeout(()=>{ const el=document.getElementById("set-code-saved"); if(el) el.style.display="none"; }, 2000);
 }
 async function saveBranding(){
   const name = document.getElementById("set-name").value.trim() || "Campus Register";
