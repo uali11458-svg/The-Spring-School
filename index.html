@@ -98,7 +98,7 @@
 
   .grid-stats{ display:grid; grid-template-columns:repeat(4,1fr); gap:16px; margin-bottom:34px; }
   .stat{ background:var(--paper); border:1px solid var(--line); border-radius:10px; padding:18px 20px; box-shadow:var(--shadow-sm); }
-  .stat-label{ font-size:11.5px; color:var(--text-faint); margin-bottom:8px; text-transform:uppercase; letter-spacing:.4px; }
+  .stat-label{ font-size:12px; color:var(--text-muted); margin-bottom:8px; font-weight:500; letter-spacing:.1px; }
   .stat-value{ font-family:'Libre Caslon Text',serif; font-size:27px; color:var(--ink); }
   .stat-sub{ font-size:11px; color:var(--text-faint); margin-top:5px; }
 
@@ -128,6 +128,10 @@
   .announce-body{ font-size:13.5px; color:var(--text); line-height:1.65; }
 
   .center-loading{ min-height:100vh; display:flex; align-items:center; justify-content:center; color:var(--text-muted); font-size:14px; }
+
+  .dash-header{ margin-bottom:26px; }
+  .dash-greeting{ font-family:'Libre Caslon Text',serif; font-size:26px; color:var(--ink); }
+  .dash-sub{ font-size:13px; color:var(--text-faint); margin-top:4px; }
 
   .lesson-card{ margin-bottom:22px; }
   .lesson-card h3{ margin-bottom:12px; }
@@ -571,56 +575,96 @@ async function render(){
 }
 
 /* ---------------- Dashboard ---------------- */
+function greeting(){
+  const h = new Date().getHours();
+  if(h < 12) return "Good morning";
+  if(h < 17) return "Good afternoon";
+  return "Good evening";
+}
+
 async function renderDashboard(){
   const { data: ann } = await sb.from("announcements").select("*").order("created_at",{ascending:false}).limit(3);
+  const firstName = (PROFILE.full_name||"").split(" ")[0];
+  const headerHtml = `
+    <div class="dash-header">
+      <div>
+        <div class="dash-greeting">${greeting()}, ${esc(firstName)}</div>
+        <div class="dash-sub">${esc(SCHOOL.name)} · ${new Date().toLocaleDateString(undefined,{weekday:'long', month:'long', day:'numeric'})}</div>
+      </div>
+    </div>
+  `;
 
   if(PROFILE.role==="student"){
     const { data: assignments } = await sb.from("assignments").select("*").eq("class_id", PROFILE.class_id);
     const { data: marks } = await sb.from("marks").select("*").eq("student_id", PROFILE.id);
-    let sum=0,n=0;
+    let sum=0,n=0, pending=0;
     (assignments||[]).forEach(a=>{
       const m = (marks||[]).find(x=>x.assignment_id===a.id);
-      if(m && m.marks!=null){ sum += (m.marks/a.max_marks)*100; n++; }
+      if(m && m.marks!=null){ sum += (m.marks/a.max_marks)*100; n++; } else { pending++; }
     });
     const avg = n? Math.round(sum/n) : null;
-    return `
+    const { data: subjects } = await sb.from("subjects").select("id").eq("class_id", PROFILE.class_id);
+
+    return headerHtml + `
       <div class="grid-stats">
-        <div class="stat"><div class="stat-label">Average score</div><div class="stat-value">${avg===null?"—":avg+"%"}</div></div>
-        <div class="stat"><div class="stat-label">Assignments</div><div class="stat-value">${(assignments||[]).length}</div></div>
+        ${statCard("📊","Average score", avg===null?"—":avg+"%", null, "var(--gold)")}
+        ${statCard("📚","Subjects", (subjects||[]).length, null, "var(--ink-3)")}
+        ${statCard("📝","Assignments", (assignments||[]).length, pending ? pending+" pending" : "all graded", "var(--green)")}
       </div>
       <div class="panel"><h3>Latest announcements</h3>${renderAnnList(ann)}</div>
     `;
   }
 
+  const subjects = await myTeachingSubjects();
+  const subjectIds = subjects.map(s=>s.id);
+  const safeSubjIds = subjectIds.length ? subjectIds : ["00000000-0000-0000-0000-000000000000"];
+
   let classQ = sb.from("classes").select("id");
   if(PROFILE.role==="teacher") classQ = classQ.eq("teacher_id", PROFILE.id);
-  const { data: classes } = await classQ;
-  const classIds = (classes||[]).map(c=>c.id);
-  const safeIds = classIds.length ? classIds : ["00000000-0000-0000-0000-000000000000"];
+  const { data: homeroomClasses } = await classQ;
+  const homeroomIds = (homeroomClasses||[]).map(c=>c.id);
+  const safeHomeroomIds = homeroomIds.length ? homeroomIds : ["00000000-0000-0000-0000-000000000000"];
 
-  let studentCount;
+  let studentCount, classCount;
   if(PROFILE.role==="admin"){
     const { count } = await sb.from("profiles").select("id",{count:"exact",head:true}).eq("role","student");
     studentCount = count;
+    const { count: cc } = await sb.from("classes").select("id",{count:"exact",head:true});
+    classCount = cc;
   } else {
-    const { count } = await sb.from("profiles").select("id",{count:"exact",head:true}).eq("role","student").in("class_id", safeIds);
+    const { data: subjClasses } = await sb.from("subjects").select("class_id").eq("teacher_id", PROFILE.id);
+    const uniqueClassIds = [...new Set((subjClasses||[]).map(s=>s.class_id))];
+    classCount = uniqueClassIds.length;
+    const { count } = await sb.from("profiles").select("id",{count:"exact",head:true}).eq("role","student").in("class_id", uniqueClassIds.length?uniqueClassIds:["00000000-0000-0000-0000-000000000000"]);
     studentCount = count;
   }
-  const { count: assignmentCount } = await sb.from("assignments").select("id",{count:"exact",head:true}).in("class_id", safeIds);
+
+  const assignQ = PROFILE.role==="admin" ? sb.from("assignments").select("id",{count:"exact",head:true}) : sb.from("assignments").select("id",{count:"exact",head:true}).in("subject_id", safeSubjIds);
+  const { count: assignmentCount } = await assignQ;
+
   const today = todayStr();
-  const { data: attToday } = await sb.from("attendance").select("status").eq("date",today).in("class_id", safeIds);
+  const { data: attToday } = await sb.from("attendance").select("status").eq("date",today).in("class_id", safeHomeroomIds);
   const total = (attToday||[]).length;
   const present = (attToday||[]).filter(a=>a.status==="present").length;
   const attPct = total? Math.round(present/total*100) : null;
 
-  return `
+  return headerHtml + `
     <div class="grid-stats">
-      <div class="stat"><div class="stat-label">Classes</div><div class="stat-value">${(classes||[]).length}</div></div>
-      <div class="stat"><div class="stat-label">Students</div><div class="stat-value">${studentCount||0}</div></div>
-      <div class="stat"><div class="stat-label">Assignments</div><div class="stat-value">${assignmentCount||0}</div></div>
-      <div class="stat"><div class="stat-label">Attendance today</div><div class="stat-value">${attPct===null?"—":attPct+"%"}</div><div class="stat-sub">${total? "marked for "+total+" students":"not marked yet"}</div></div>
+      ${statCard("🏫","Classes", classCount||0, null, "var(--ink-3)")}
+      ${statCard("🎓","Students", studentCount||0, null, "var(--gold)")}
+      ${statCard("📝","Assignments", assignmentCount||0, null, "var(--green)")}
+      ${statCard("✅","Attendance today", attPct===null?"—":attPct+"%", total? "marked for "+total+" students":"not marked yet", "var(--amber)")}
     </div>
     <div class="panel"><h3>Latest announcements</h3>${renderAnnList(ann)}</div>
+  `;
+}
+function statCard(icon, label, value, sub, accent){
+  return `
+    <div class="stat" style="border-left:3px solid ${accent};">
+      <div class="stat-label">${icon} ${label}</div>
+      <div class="stat-value">${value}</div>
+      ${sub ? `<div class="stat-sub">${sub}</div>` : ""}
+    </div>
   `;
 }
 function renderAnnList(ann){
@@ -702,23 +746,17 @@ function lessonsState(){
 
 async function renderLessons(){
   const st = lessonsState();
-  const staff = PROFILE.role !== "student";
+  const isAdmin = PROFILE.role === "admin";
+  const isTeacher = PROFILE.role === "teacher";
+  const isStudent = PROFILE.role === "student";
 
-  let classes;
-  if(staff){ classes = await myClasses(); }
-  else { const { data } = await sb.from("classes").select("id,name").eq("id", PROFILE.class_id); classes = data || []; }
-  window.__classesCache = classes;
-
-  if(!classes.length) return `<div class="empty"><span class="serif">No classes yet</span></div>`;
-  if(!st.classId || !classes.some(c=>c.id===st.classId)) st.classId = classes[0].id;
-
-  // ----- Video detail view -----
+  // ----- Video detail view (shared across roles) -----
   if(st.lessonId){
     const { data: lesson } = await sb.from("lessons").select("*").eq("id", st.lessonId).maybeSingle();
     if(!lesson) { st.lessonId = null; return renderLessons(); }
     const embed = ytEmbedUrl(lesson.youtube_url);
     let watched = false;
-    if(!staff){
+    if(isStudent){
       const { data: v } = await sb.from("lesson_views").select("id").eq("lesson_id", lesson.id).eq("student_id", PROFILE.id).maybeSingle();
       watched = !!v;
     }
@@ -728,9 +766,9 @@ async function renderLessons(){
         <h3>${esc(lesson.title)}</h3>
         ${embed ? `<div class="video-wrap"><iframe src="${embed}" allowfullscreen></iframe></div>` : `<div class="empty">Couldn't read this YouTube link.</div>`}
         ${lesson.description ? `<p style="margin-top:14px; font-size:14px; line-height:1.7; color:var(--text);">${esc(lesson.description)}</p>` : ""}
-        ${staff ? `
+        ${!isStudent ? `
           <div style="margin-top:16px; display:flex; gap:8px;">
-            <button class="btn btn-sm" onclick="viewLessonViews('${lesson.id}','${esc(lesson.title)}','${st.classId}')">Views</button>
+            <button class="btn btn-sm" onclick="viewLessonViews('${lesson.id}','${esc(lesson.title)}','${lesson.subject_id}')">Views</button>
             <button class="btn btn-sm btn-danger" onclick="deleteLesson('${lesson.id}')">Delete</button>
           </div>
         ` : `
@@ -740,20 +778,13 @@ async function renderLessons(){
     `;
   }
 
-  const classSelectHtml = classes.length > 1 ? `
-    <div class="form-row" style="margin-bottom:20px; max-width:280px;">
-      <div><label class="field-label">Class</label>
-        <select class="text-input" id="lessons-class-select">${classes.map(c=>`<option value="${c.id}" ${c.id===st.classId?'selected':''}>${esc(c.name)}</option>`).join("")}</select>
-      </div>
-    </div>` : "";
-
-  // ----- Lessons list within a subject -----
+  // ----- Lessons list within a subject (shared across roles) -----
   if(st.subjectId){
     const { data: subject } = await sb.from("subjects").select("*").eq("id", st.subjectId).maybeSingle();
     if(!subject){ st.subjectId = null; return renderLessons(); }
     const { data: lessons } = await sb.from("lessons").select("*").eq("subject_id", st.subjectId).order("created_at");
     let watchedSet = new Set();
-    if(!staff){
+    if(isStudent){
       const { data: views } = await sb.from("lesson_views").select("lesson_id").eq("student_id", PROFILE.id);
       watchedSet = new Set((views||[]).map(v=>v.lesson_id));
     }
@@ -761,38 +792,78 @@ async function renderLessons(){
       <button class="btn btn-sm" onclick="lessonsState().subjectId=null; render();" style="margin-bottom:16px;">← Back to subjects</button>
       <div class="section-head">
         <h2>${esc(subject.name)}</h2>
-        ${staff ? `<button class="btn btn-gold" onclick="showLessonForm('${st.subjectId}')">+ Add lesson</button>` : `<span class="count">${(lessons||[]).length} lessons</span>`}
+        ${!isStudent ? `<button class="btn btn-gold" onclick="showLessonForm('${st.subjectId}')">+ Add lesson</button>` : `<span class="count">${(lessons||[]).length} lessons</span>`}
       </div>
       ${(lessons||[]).length ? `
-      <table><tr><th>Lesson</th>${!staff ? '<th>Status</th>' : '<th></th>'}</tr>
+      <table><tr><th>Lesson</th>${isStudent ? '<th>Status</th>' : '<th></th>'}</tr>
       ${lessons.map(l=>`<tr>
         <td><a href="#" onclick="lessonsState().lessonId='${l.id}'; render(); return false;" style="color:var(--ink); font-weight:500; text-decoration:underline;">${esc(l.title)}</a></td>
-        <td style="text-align:right;">${staff ? `<button class="btn btn-sm btn-danger" onclick="deleteLesson('${l.id}')">Delete</button>` : (watchedSet.has(l.id) ? `<span class="pill" style="background:var(--green-bg); color:var(--green);">Watched</span>` : `<span class="pill pill-amber">Not yet</span>`)}</td>
+        <td style="text-align:right;">${!isStudent ? `<button class="btn btn-sm btn-danger" onclick="deleteLesson('${l.id}')">Delete</button>` : (watchedSet.has(l.id) ? `<span class="pill" style="background:var(--green-bg); color:var(--green);">Watched</span>` : `<span class="pill pill-amber">Not yet</span>`)}</td>
       </tr>`).join("")}
       </table>` : `<div class="empty"><span class="serif">No lessons in this subject yet</span></div>`}
     `;
   }
 
   // ----- Subjects list -----
-  const { data: subjects } = await sb.from("subjects").select("*").eq("class_id", st.classId).order("name");
-  const subjectIds = (subjects||[]).map(s=>s.id);
-  const { data: counts } = subjectIds.length ? await sb.from("lessons").select("subject_id").in("subject_id", subjectIds) : { data: [] };
-  const countMap = {}; (counts||[]).forEach(l=>countMap[l.subject_id]=(countMap[l.subject_id]||0)+1);
+  if(isTeacher){
+    // Teacher sees only their own subjects, flat list across all classes — no other teacher's subjects visible.
+    const { data: subjects } = await sb.from("subjects").select("*, class:classes(name)").eq("teacher_id", PROFILE.id).order("name");
+    window.__mySubjectsCache = subjects || [];
+    return `
+      <div class="section-head">
+        <h2>Lessons</h2>
+        <button class="btn btn-gold" onclick="showSubjectForm()">+ New subject</button>
+      </div>
+      ${(subjects||[]).length ? `
+      <table><tr><th>Subject</th><th>Class</th><th></th></tr>
+      ${subjects.map(s=>`<tr>
+        <td><a href="#" onclick="lessonsState().subjectId='${s.id}'; render(); return false;" style="color:var(--ink); font-weight:500; text-decoration:underline;">${esc(s.name)}</a></td>
+        <td>${esc(s.class?.name||"—")}</td>
+        <td style="text-align:right;"><button class="btn btn-sm btn-danger" onclick="deleteSubject('${s.id}')">Delete</button></td>
+      </tr>`).join("")}
+      </table>` : `<div class="empty"><span class="serif">No subjects yet</span>Create a subject to start adding lessons — only you will see it.</div>`}
+    `;
+  }
+
+  if(isStudent){
+    const { data: subjects } = await sb.from("subjects").select("*").eq("class_id", PROFILE.class_id).order("name");
+    return `
+      <div class="section-head"><h2>Lessons</h2><span class="count">${(subjects||[]).length} subjects</span></div>
+      ${(subjects||[]).length ? `
+      <table><tr><th>Subject</th></tr>
+      ${subjects.map(s=>`<tr><td><a href="#" onclick="lessonsState().subjectId='${s.id}'; render(); return false;" style="color:var(--ink); font-weight:500; text-decoration:underline;">${esc(s.name)}</a></td></tr>`).join("")}
+      </table>` : `<div class="empty"><span class="serif">No subjects yet</span></div>`}
+    `;
+  }
+
+  // ----- Admin: browse by class, see every subject and its teacher -----
+  const { data: classes } = await sb.from("classes").select("id,name").order("name");
+  if(!classes || !classes.length) return `<div class="empty"><span class="serif">No classes yet</span></div>`;
+  if(!st.classId || !classes.some(c=>c.id===st.classId)) st.classId = classes[0].id;
+
+  const classSelectHtml = classes.length > 1 ? `
+    <div class="form-row" style="margin-bottom:20px; max-width:280px;">
+      <div><label class="field-label">Class</label>
+        <select class="text-input" id="lessons-class-select">${classes.map(c=>`<option value="${c.id}" ${c.id===st.classId?'selected':''}>${esc(c.name)}</option>`).join("")}</select>
+      </div>
+    </div>` : "";
+
+  const { data: subjects } = await sb.from("subjects").select("*, teacher:profiles(full_name)").eq("class_id", st.classId).order("name");
 
   return `
     <div class="section-head">
       <h2>Lessons</h2>
-      ${staff ? `<button class="btn btn-gold" onclick="showSubjectForm()">+ New subject</button>` : ``}
+      <button class="btn btn-gold" onclick="showSubjectForm()">+ New subject</button>
     </div>
     ${classSelectHtml}
     ${(subjects||[]).length ? `
-    <table><tr><th>Subject</th><th>Lessons</th><th></th></tr>
+    <table><tr><th>Subject</th><th>Teacher</th><th></th></tr>
     ${subjects.map(s=>`<tr>
       <td><a href="#" onclick="lessonsState().subjectId='${s.id}'; render(); return false;" style="color:var(--ink); font-weight:500; text-decoration:underline;">${esc(s.name)}</a></td>
-      <td>${countMap[s.id]||0}</td>
-      <td style="text-align:right;">${staff ? `<button class="btn btn-sm btn-danger" onclick="deleteSubject('${s.id}')">Delete</button>` : ""}</td>
+      <td>${esc(s.teacher?.full_name||"Unassigned")}</td>
+      <td style="text-align:right;"><button class="btn btn-sm btn-danger" onclick="deleteSubject('${s.id}')">Delete</button></td>
     </tr>`).join("")}
-    </table>` : `<div class="empty"><span class="serif">No subjects yet</span>${staff ? "Create a subject to start adding lessons." : ""}</div>`}
+    </table>` : `<div class="empty"><span class="serif">No subjects yet</span>Create a subject to start adding lessons.</div>`}
   `;
 }
 
@@ -801,15 +872,31 @@ function showSubjectForm(){
     <h3>New subject</h3>
     <label class="field-label">Subject name</label>
     <input class="text-input" id="f-subname" placeholder="e.g. Mathematics">
+    ${PROFILE.role==="teacher" ? `<p style="font-size:12.5px; color:var(--text-muted); margin-top:6px;">This subject will be assigned to you — only you will manage it.</p>` : ""}
     <div class="modal-actions"><button class="btn" onclick="closeModal()">Cancel</button><button class="btn btn-gold" onclick="saveSubject()">Save subject</button></div>
   `);
 }
 async function saveSubject(){
   const name = document.getElementById("f-subname").value.trim();
   if(!name) return;
-  const { error } = await sb.from("subjects").insert({ name, class_id: lessonsState().classId });
+  const st = lessonsState();
+  const classId = PROFILE.role === "teacher" ? (await pickClassForNewTeacherSubject()) : st.classId;
+  if(!classId) return;
+  const row = { name, class_id: classId };
+  if(PROFILE.role === "teacher") row.teacher_id = PROFILE.id;
+  const { error } = await sb.from("subjects").insert(row);
   if(error){ alert(error.message); return; }
   closeModal(); render();
+}
+async function pickClassForNewTeacherSubject(){
+  // Teachers aren't tied to a single class anymore, so ask which class this subject is for.
+  const { data: classes } = await sb.from("classes").select("id,name").order("name");
+  if(!classes || !classes.length){ alert("No classes exist yet — ask your admin to create one first."); return null; }
+  if(classes.length === 1) return classes[0].id;
+  const choice = prompt("Which class is this subject for?\n" + classes.map((c,i)=>`${i+1}. ${c.name}`).join("\n") + "\n\nType the number:");
+  const idx = parseInt(choice) - 1;
+  if(isNaN(idx) || !classes[idx]) return null;
+  return classes[idx].id;
 }
 async function deleteSubject(id){
   if(!confirm("Delete this subject and all its lessons?")) return;
@@ -850,8 +937,9 @@ async function markWatched(lessonId){
   if(error){ alert(error.message); return; }
   render();
 }
-async function viewLessonViews(lessonId, title, classId){
-  const { data: roster } = await sb.from("profiles").select("id,full_name").eq("role","student").eq("class_id", classId).order("full_name");
+async function viewLessonViews(lessonId, title, subjectId){
+  const { data: subject } = await sb.from("subjects").select("class_id").eq("id", subjectId).maybeSingle();
+  const { data: roster } = await sb.from("profiles").select("id,full_name").eq("role","student").eq("class_id", subject?.class_id||"").order("full_name");
   const { data: views } = await sb.from("lesson_views").select("student_id, viewed_at").eq("lesson_id", lessonId);
   const viewMap = {}; (views||[]).forEach(v=>viewMap[v.student_id]=v.viewed_at);
   openModal(`
@@ -868,16 +956,16 @@ async function viewLessonViews(lessonId, title, classId){
 /* ---------------- Quizzes ---------------- */
 async function renderQuizzes(){
   if(PROFILE.role==="student"){
-    const { data: quizzes } = await sb.from("quizzes").select("*").eq("class_id", PROFILE.class_id).order("created_at",{ascending:false});
+    const { data: quizzes } = await sb.from("quizzes").select("*, subject:subjects(name)").eq("class_id", PROFILE.class_id).order("created_at",{ascending:false});
     const { data: attempts } = await sb.from("quiz_attempts").select("*").eq("student_id", PROFILE.id);
     const attemptMap = {}; (attempts||[]).forEach(a=>attemptMap[a.quiz_id]=a);
     return `
       <div class="section-head"><h2>Quizzes</h2><span class="count">${(quizzes||[]).length} total</span></div>
       ${(quizzes||[]).length ? `
-      <table><tr><th>Quiz</th><th>Status</th><th></th></tr>
+      <table><tr><th>Quiz</th><th>Subject</th><th>Status</th><th></th></tr>
       ${quizzes.map(q=>{
         const at = attemptMap[q.id];
-        return `<tr><td>${esc(q.title)}</td>
+        return `<tr><td>${esc(q.title)}</td><td>${esc(q.subject?.name||"—")}</td>
           <td>${at ? `<span class="pill" style="background:var(--green-bg); color:var(--green);">${at.score} / ${at.total}</span>` : `<span class="pill pill-amber">Not attempted</span>`}</td>
           <td style="text-align:right;"><button class="btn btn-sm" onclick="openQuiz('${q.id}')">${at?"Review":"Take quiz"}</button></td>
         </tr>`;
@@ -885,19 +973,18 @@ async function renderQuizzes(){
       </table>` : `<div class="empty"><span class="serif">No quizzes yet</span></div>`}
     `;
   }
-  const classes = await myClasses();
-  window.__classesCache = classes;
-  const classIds = classes.map(c=>c.id);
-  const safeIds = classIds.length ? classIds : ["00000000-0000-0000-0000-000000000000"];
-  const { data: quizzes } = await sb.from("quizzes").select("*, class:classes(name)").in("class_id", safeIds).order("created_at",{ascending:false});
+  const subjects = await myTeachingSubjects();
+  window.__mySubjectsCache = subjects;
+  const subjectIds = subjects.map(s=>s.id);
+  const { data: quizzes } = await sb.from("quizzes").select("*, subject:subjects(name)").in("subject_id", subjectIds.length?subjectIds:["00000000-0000-0000-0000-000000000000"]).order("created_at",{ascending:false});
   return `
     <div class="section-head">
       <h2>Quizzes</h2>
-      ${classes.length ? `<button class="btn btn-gold" onclick="showQuizBuilder()">+ New quiz</button>` : ``}
+      ${subjects.length ? `<button class="btn btn-gold" onclick="showQuizBuilder()">+ New quiz</button>` : `<span class="count">Create a subject first (in Lessons) before adding quizzes</span>`}
     </div>
     ${(quizzes||[]).length ? `
-    <table><tr><th>Quiz</th><th>Class</th><th></th></tr>
-    ${quizzes.map(q=>`<tr><td>${esc(q.title)}</td><td>${esc(q.class?.name||"—")}</td>
+    <table><tr><th>Quiz</th><th>Subject</th><th></th></tr>
+    ${quizzes.map(q=>`<tr><td>${esc(q.title)}</td><td>${esc(q.subject?.name||"—")}</td>
       <td style="text-align:right;">
         <button class="btn btn-sm" onclick="viewQuizResults('${q.id}','${esc(q.title)}')">Results</button>
         <button class="btn btn-sm btn-danger" onclick="deleteQuiz('${q.id}')" style="margin-left:6px;">Delete</button>
@@ -909,13 +996,13 @@ async function renderQuizzes(){
 let quizDraftQuestions = [];
 function showQuizBuilder(){
   quizDraftQuestions = [{ question:"", a:"", b:"", c:"", d:"", correct:"a" }];
-  const classes = window.__classesCache || [];
+  const subjects = window.__mySubjectsCache || [];
   openModal(`
     <h3>New quiz</h3>
     <label class="field-label">Quiz title</label>
     <input class="text-input" id="f-qtitle" placeholder="e.g. Chapter 3 Quiz">
-    <label class="field-label">Class</label>
-    <select class="text-input" id="f-qclass">${classes.map(c=>`<option value="${c.id}">${esc(c.name)}</option>`).join("")}</select>
+    <label class="field-label">Subject</label>
+    <select class="text-input" id="f-qsubject">${subjects.map(s=>`<option value="${s.id}" data-class="${s.class_id}">${esc(s.name)}${s.class?.name ? ` (${esc(s.class.name)})` : ""}</option>`).join("")}</select>
     <div id="qbuilder-questions" style="margin-top:16px;"></div>
     <button class="btn" onclick="addQuizQuestionRow()">+ Add question</button>
     <div class="modal-actions"><button class="btn" onclick="closeModal()">Cancel</button><button class="btn btn-gold" onclick="saveQuiz()">Save quiz</button></div>
@@ -955,12 +1042,14 @@ function removeQuizQuestionRow(i){
 }
 async function saveQuiz(){
   const title = document.getElementById("f-qtitle").value.trim();
-  const classId = document.getElementById("f-qclass").value;
-  if(!title || !classId) return;
+  const subjectSelect = document.getElementById("f-qsubject");
+  const subjectId = subjectSelect.value;
+  const classId = subjectSelect.selectedOptions[0]?.dataset.class;
+  if(!title || !subjectId) return;
   const valid = quizDraftQuestions.filter(q=>q.question.trim() && q.a.trim() && q.b.trim() && q.c.trim() && q.d.trim());
   if(!valid.length){ alert("Add at least one complete question (with all 4 options)."); return; }
 
-  const { data: quiz, error } = await sb.from("quizzes").insert({ title, class_id:classId }).select().single();
+  const { data: quiz, error } = await sb.from("quizzes").insert({ title, subject_id:subjectId, class_id:classId }).select().single();
   if(error){ alert(error.message); return; }
   const rows = valid.map((q,i)=>({
     quiz_id: quiz.id, question:q.question.trim(),
@@ -1203,36 +1292,44 @@ async function saveNewStudent(){
 }
 
 /* ---------------- Assignments ---------------- */
+async function myTeachingSubjects(){
+  if(PROFILE.role==="admin"){
+    const { data } = await sb.from("subjects").select("*, class:classes(name)").order("name");
+    return data || [];
+  }
+  const { data } = await sb.from("subjects").select("*, class:classes(name)").eq("teacher_id", PROFILE.id).order("name");
+  return data || [];
+}
+
 async function renderAssignments(){
   if(PROFILE.role==="student"){
-    const { data: list } = await sb.from("assignments").select("*, class:classes(name)").eq("class_id", PROFILE.class_id).order("due",{ascending:false});
+    const { data: list } = await sb.from("assignments").select("*, subject:subjects(name), class:classes(name)").eq("class_id", PROFILE.class_id).order("due",{ascending:false});
     const { data: marks } = await sb.from("marks").select("*").eq("student_id", PROFILE.id);
     const markMap = {}; (marks||[]).forEach(m=>markMap[m.assignment_id]=m.marks);
     return `
       <div class="section-head"><h2>Assignments</h2><span class="count">${(list||[]).length} total</span></div>
       ${(list||[]).length ? `
-      <table><tr><th>Assignment</th><th>Class</th><th>Due</th><th>Max marks</th><th>PDF</th><th>Your score</th></tr>
-      ${list.map(a=>`<tr><td>${esc(a.title)}</td><td>${esc(a.class?.name||"—")}</td><td>${fmtDate(a.due)}</td><td>${a.max_marks}</td>
+      <table><tr><th>Assignment</th><th>Subject</th><th>Due</th><th>Max marks</th><th>PDF</th><th>Your score</th></tr>
+      ${list.map(a=>`<tr><td>${esc(a.title)}</td><td>${esc(a.subject?.name||"—")}</td><td>${fmtDate(a.due)}</td><td>${a.max_marks}</td>
         <td>${a.pdf_url ? `<a href="${a.pdf_url}" target="_blank" rel="noopener" style="color:var(--gold-dark); text-decoration:underline;">Download</a>` : "—"}</td>
         <td>${markMap[a.id]!=null ? markMap[a.id]+" / "+a.max_marks : `<span class="pill pill-amber">Pending</span>`}</td></tr>`).join("")}
       </table>` : `<div class="empty"><span class="serif">Nothing assigned yet</span></div>`}
     `;
   }
 
-  const classes = await myClasses();
-  const classIds = classes.map(c=>c.id);
-  const safeIds = classIds.length ? classIds : ["00000000-0000-0000-0000-000000000000"];
-  const { data: list } = await sb.from("assignments").select("*, class:classes(name)").in("class_id", safeIds).order("due",{ascending:false});
-  window.__classesCache = classes;
+  const subjects = await myTeachingSubjects();
+  window.__mySubjectsCache = subjects;
+  const subjectIds = subjects.map(s=>s.id);
+  const { data: list } = await sb.from("assignments").select("*, subject:subjects(name)").in("subject_id", subjectIds.length?subjectIds:["00000000-0000-0000-0000-000000000000"]).order("due",{ascending:false});
 
   return `
     <div class="section-head">
       <h2>Assignments</h2>
-      ${classes.length ? `<button class="btn btn-gold" onclick="showAssignmentForm()">+ New assignment</button>` : ``}
+      ${subjects.length ? `<button class="btn btn-gold" onclick="showAssignmentForm()">+ New assignment</button>` : `<span class="count">Create a subject first (in Lessons) before adding assignments</span>`}
     </div>
     ${(list||[]).length ? `
-    <table><tr><th>Assignment</th><th>Class</th><th>Due</th><th>Max marks</th><th>PDF</th><th></th></tr>
-    ${list.map(a=>`<tr><td>${esc(a.title)}</td><td>${esc(a.class?.name||"—")}</td><td>${fmtDate(a.due)}</td><td>${a.max_marks}</td>
+    <table><tr><th>Assignment</th><th>Subject</th><th>Due</th><th>Max marks</th><th>PDF</th><th></th></tr>
+    ${list.map(a=>`<tr><td>${esc(a.title)}</td><td>${esc(a.subject?.name||"—")}</td><td>${fmtDate(a.due)}</td><td>${a.max_marks}</td>
       <td>${a.pdf_url ? `<a href="${a.pdf_url}" target="_blank" rel="noopener" style="color:var(--gold-dark); text-decoration:underline;">${esc(a.pdf_name||"Download")}</a>` : "—"}</td>
       <td style="text-align:right;"><button class="btn btn-sm" onclick="openGrading('${a.id}','${esc(a.title)}',${a.max_marks},'${a.class_id}')">Grade</button>
       <button class="btn btn-sm btn-danger" onclick="deleteAssignment('${a.id}')" style="margin-left:6px;">Delete</button></td></tr>`).join("")}
@@ -1240,13 +1337,13 @@ async function renderAssignments(){
   `;
 }
 function showAssignmentForm(){
-  const classes = window.__classesCache || [];
+  const subjects = window.__mySubjectsCache || [];
   openModal(`
     <h3>New assignment</h3>
     <label class="field-label">Title</label>
     <input class="text-input" id="f-atitle" placeholder="e.g. Chapter 4 Quiz">
-    <label class="field-label">Class</label>
-    <select class="text-input" id="f-aclass">${classes.map(c=>`<option value="${c.id}">${esc(c.name)}</option>`).join("")}</select>
+    <label class="field-label">Subject</label>
+    <select class="text-input" id="f-asubject">${subjects.map(s=>`<option value="${s.id}" data-class="${s.class_id}">${esc(s.name)}${s.class?.name ? ` (${esc(s.class.name)})` : ""}</option>`).join("")}</select>
     <div class="form-row">
       <div><label class="field-label">Due date</label><input type="date" class="text-input" id="f-adue" value="${todayStr()}"></div>
       <div><label class="field-label">Max marks</label><input type="number" class="text-input" id="f-amax" value="20"></div>
@@ -1259,12 +1356,14 @@ function showAssignmentForm(){
 }
 async function saveAssignment(){
   const title = document.getElementById("f-atitle").value.trim();
-  const classId = document.getElementById("f-aclass").value;
+  const subjectSelect = document.getElementById("f-asubject");
+  const subjectId = subjectSelect.value;
+  const classId = subjectSelect.selectedOptions[0]?.dataset.class;
   const due = document.getElementById("f-adue").value || todayStr();
   const maxMarks = parseInt(document.getElementById("f-amax").value) || 20;
   const fileInput = document.getElementById("f-apdf");
   const file = fileInput.files[0];
-  if(!title || !classId) return;
+  if(!title || !subjectId) return;
 
   let pdf_url = null, pdf_name = null;
   if(file){
@@ -1280,7 +1379,7 @@ async function saveAssignment(){
     pdf_url = pub.publicUrl; pdf_name = file.name;
   }
 
-  const { error } = await sb.from("assignments").insert({ title, class_id:classId, due, max_marks:maxMarks, pdf_url, pdf_name });
+  const { error } = await sb.from("assignments").insert({ title, subject_id:subjectId, class_id:classId, due, max_marks:maxMarks, pdf_url, pdf_name });
   if(error){ alert(error.message); return; }
   closeModal(); render();
 }
